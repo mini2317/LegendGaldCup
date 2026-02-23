@@ -401,9 +401,9 @@ class Master(commands.Cog):
             manager_text = "🎉 제안 목록 심사를 통과하여 선정된 이번 주 갈드컵 주제입니다!"
         
         embed = discord.Embed(
-            title=f"📢 현재 진행 중인 갈드컵 주제: {new_topic_data['topic']}",
+            title=f"{'📣 새로운 주제' if is_new_channel else '📢 현재 진행 중인 갈드컵 주제'}: {new_topic_data['topic']}",
             description=f"{manager_text}\n\n아래 선택바를 클릭해 당신의 선택과 의견을 남겨주세요!\n⏳ **투표 마감 예정:** <t:{end_time}:R>",
-            color=discord.Color.yellow()
+            color=(discord.Color.green() if not is_new_channel else discord.Color.yellow()) if not admin_force_user else discord.Color.brand_red()
         )
         
         desc_text = ""
