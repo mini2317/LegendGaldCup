@@ -16,6 +16,9 @@ if [ ! -d "venv" ]; then
 fi
 
 source venv/bin/activate
+echo "Checking and installing any new dependencies..."
+pip install -r requirements.txt
+
 echo "Starting the bot in the background..."
 nohup python3 main.py > bot.log 2>&1 &
 echo "=========================================="
