@@ -767,22 +767,20 @@ class BotAdmin(commands.Cog):
                 await ctx.send("✅ 이미 최신 상태이거나 출력이 없습니다.")
                 return
                 
-            await ctx.send(f"📦 업데이트 내역이 감지되었습니다:\n```\n{output[:1800]}\n```\n🔄 최신 코드를 즉시 적용하기 위해 모듈들(Cogs) 무중단 패치를 시작합니다...")
+            await ctx.send(f"📦 업데이트 내역이 감지되었습니다:\n```\n{output[:1800]}\n```\n🔄 새 종속성 설치 및 완전한 패치 적용을 위해 봇 프로세스를 **강제 재기동**합니다. 잠시 후 다시 시작됩니다...")
             
-            # Cogs 폴더의 모든 확장을 리로드
-            import os
-            cogs_dir = "cogs"
-            reloaded = []
-            for filename in os.listdir(cogs_dir):
-                if filename.endswith('.py') and not filename.startswith('__'):
-                    cog_name = f"cogs.{filename[:-3]}"
-                    try:
-                        await self.bot.reload_extension(cog_name)
-                        reloaded.append(filename)
-                    except Exception as e:
-                        await ctx.send(f"❌ `{cog_name}` 리로드 실패: {e}")
+            # Use platform-independent way to restart if possible, or trigger the shell script
+            import sys
+            if os.path.exists('restart_bot.sh'):
+                # Linux/macOS environment
+                subprocess.Popen(['bash', 'restart_bot.sh'], start_new_session=True)
+            else:
+                # Fallback to python restart
+                subprocess.Popen([sys.executable, 'main.py'], start_new_session=True)
             
-            await ctx.send(f"🌌 **업데이트 완료!** 무중단 패치가 성공적으로 적용된 모듈: {', '.join(reloaded)}")
+            # Kill current process gracefully
+            await self.bot.close()
+            os._exit(0)
             
         except subprocess.CalledProcessError as e:
             await ctx.send(f"🚨 Github에서 코드를 가져오는 중 오류가 발생했습니다.\n```\n{e.stderr[:1800]}\n```")
