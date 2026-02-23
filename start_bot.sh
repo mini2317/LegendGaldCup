@@ -55,7 +55,10 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 4. Check for .env file
+# 4. Give Permission to shell files
+chmod +x start_bot.sh stop_bot.sh restart_bot.sh
+
+# 5. Check for .env file
 if [ ! -f ".env" ]; then
     echo "Warning: .env file not found. Please create one based on .env.example before running."
     echo "You can still run this script again once .env is ready."

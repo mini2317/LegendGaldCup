@@ -44,7 +44,7 @@ class Admin(commands.Cog):
         if survey:
             master_cog = self.bot.get_cog("Master")
             if master_cog:
-                embed = await master_cog.announce_new_topic(interaction.guild_id, channel.id, survey, is_master=False, admin_force_user=None, is_new_channel=True)
+                embed = await master_cog.announce_new_topic(interaction.guild_id, channel.id, survey, is_new_channel=True)
                 try:
                     await channel.send(embed=embed)
                 except Exception:

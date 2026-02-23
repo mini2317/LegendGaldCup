@@ -374,7 +374,7 @@ class Master(commands.Cog):
         for guild_id, channel_id in channels:
             await self.announce_new_topic(guild_id, channel_id, new_topic_data, is_master, admin_force_user)
             
-    async def announce_new_topic(self, guild_id, channel_id, new_topic_data, is_master, admin_force_user, is_new_channel:bool = False):
+    async def announce_new_topic(self, guild_id, channel_id, new_topic_data, is_master:bool = False, admin_force_user: discord.User = None, is_new_channel:bool = False):
         try:
             channel = self.bot.get_channel(channel_id)
             if not channel:
@@ -400,6 +400,7 @@ class Master(commands.Cog):
         else:
             manager_text = "🎉 제안 목록 심사를 통과하여 선정된 이번 주 갈드컵 주제입니다!"
         
+        print("???")
         embed = discord.Embed(
             title=f"{'📣 새로운 주제' if is_new_channel else '📢 현재 진행 중인 갈드컵 주제'}: {new_topic_data['topic']}",
             description=f"{manager_text}\n\n아래 선택바를 클릭해 당신의 선택과 의견을 남겨주세요!\n⏳ **투표 마감 예정:** <t:{end_time}:R>",
