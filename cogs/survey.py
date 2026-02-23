@@ -173,7 +173,7 @@ class SuggestionBuilderView(discord.ui.View):
             return
         await interaction.response.send_modal(RemoveOptionModal(self))
 
-    @discord.ui.button(label="콘텐츠 첨부", style=discord.ButtonStyle.secondary, emoji="�", row=0)
+    @discord.ui.button(label="콘텐츠 첨부", style=discord.ButtonStyle.secondary, emoji="📎", row=0)
     async def link_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = AddLinkModal(self)
         if self.image_url:
