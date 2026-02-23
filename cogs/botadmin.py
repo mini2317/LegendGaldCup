@@ -318,7 +318,12 @@ class TopicPaginationView(discord.ui.View):
     async def force_pick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         topic = self.topics[self.current_page]
         await database.delete_suggested_topic(topic['id'])
-        await self.master_cog.force_new_topic(topic, interaction.user)
+        master_cog = interaction.client.get_cog('Master')
+        if master_cog:
+            await master_cog.force_new_topic(topic, interaction.user)
+        else:
+            await interaction.response.send_message("❌ Master 모듈을 찾을 수 없습니다. 봇을 재구동하거나 모듈을 리로드하세요.", ephemeral=True)
+            return
         
         # UI에서 삭제 처리
         self.topics.pop(self.current_page)
@@ -519,12 +524,17 @@ class QueuePaginationView(discord.ui.View):
         self.update_buttons()
         await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
 
-    @discord.ui.button(label="즉시 강제시작 (!투표 파괴!)", style=discord.ButtonStyle.danger, emoji="⚠️", row=2)
+    @discord.ui.button(label="즉시 강제시작", style=discord.ButtonStyle.danger, emoji="⚠️", row=2)
     async def force_pick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         topic = self.topics[self.current_page]
         import database
         await database.delete_queued_topic(topic['id'])
-        await self.master_cog.force_new_topic(topic, interaction.user)
+        master_cog = interaction.client.get_cog('Master')
+        if master_cog:
+            await master_cog.force_new_topic(topic, interaction.user)
+        else:
+            await interaction.response.send_message("❌ Master 모듈을 찾을 수 없습니다. 봇을 재구동하거나 모듈을 리로드하세요.", ephemeral=True)
+            return
         
         self.topics.pop(self.current_page)
         self.max_pages = len(self.topics)
