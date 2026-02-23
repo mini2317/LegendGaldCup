@@ -9,85 +9,259 @@ import asyncio
 
 logger = logging.getLogger('discord')
 
-class SuggestTopicModal(discord.ui.Modal, title='새로운 갈드컵 주제 제시하기'):
+# ====================================================
+# [추가] 고급 주제 제시 빌더 (Advanced Suggestion Builder)
+# ====================================================
+
+class SuggestTopicTitleModal(discord.ui.Modal, title='새로운 갈드컵 주제 제시하기'):
+    def __init__(self, master_cog):
+        super().__init__()
+        self.master_cog = master_cog
+
     topic = discord.ui.TextInput(
-        label='1. 갈드컵 주제',
+        label='갈드컵 주제 (질문)',
         style=discord.TextStyle.short,
         placeholder='예: 평생 탕수육 소스는?',
         required=True,
         max_length=100
     )
-    
-    options = discord.ui.TextInput(
-        label='2. 선택 옵션 (쉼표로 구분)',
+
+    async def on_submit(self, interaction: discord.Interaction):
+        topic_text = self.topic.value
+        view = SuggestionBuilderView(topic_text, self.master_cog, interaction.user.id)
+        embed = view.get_embed()
+        # 이 유저에게만 보이는 임시 메뉴로 빌더 띄우기
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+class AddOptionModal(discord.ui.Modal, title='선택지 추가하기'):
+    def __init__(self, view: 'SuggestionBuilderView'):
+        super().__init__()
+        self.view = view
+
+    opt_name = discord.ui.TextInput(
+        label='선택지 이름 (짧게)',
         style=discord.TextStyle.short,
-        placeholder='예: 부먹, 찍먹',
+        placeholder='예: 부먹',
         required=True,
-        max_length=200
+        max_length=50
+    )
+    opt_desc = discord.ui.TextInput(
+        label='설명 (선택사항)',
+        style=discord.TextStyle.short,
+        placeholder='예: 소스를 부어 축축하게 먹는다',
+        required=False,
+        max_length=100
     )
 
-    allow_multiple = discord.ui.TextInput(
-        label='3. 중복투표 가능여부 (O/X)',
+    async def on_submit(self, interaction: discord.Interaction):
+        name = self.opt_name.value.strip()
+        desc = self.opt_desc.value.strip()
+        self.view.options.append({"name": name, "desc": desc})
+        await interaction.response.edit_message(embed=self.view.get_embed(), view=self.view)
+
+class RemoveOptionModal(discord.ui.Modal, title='선택지 지우기'):
+    def __init__(self, view: 'SuggestionBuilderView'):
+        super().__init__()
+        self.view = view
+
+    opt_index = discord.ui.TextInput(
+        label='지울 선택지 번호',
         style=discord.TextStyle.short,
-        placeholder='O 또는 X',
+        placeholder='숫자만 입력 (예: 1)',
         required=True,
-        max_length=1
+        max_length=2
     )
 
-    allow_short = discord.ui.TextInput(
-        label='4. 기타 단답형 허용여부 (O/X)',
-        style=discord.TextStyle.short,
-        placeholder='O 또는 X',
-        required=True,
-        max_length=1
-    )
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            idx = int(self.opt_index.value.strip()) - 1
+            if 0 <= idx < len(self.view.options):
+                popped = self.view.options.pop(idx)
+                await interaction.response.edit_message(embed=self.view.get_embed(), view=self.view)
+            else:
+                await interaction.response.send_message("❌ 존재하는 번호가 아닙니다.", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ 숫자만 입력해주세요.", ephemeral=True)
 
-    image_url = discord.ui.TextInput(
-        label='5. 대표 이미지 URL (선택사항)',
+class AddImageModal(discord.ui.Modal, title='이미지 첨부 (URL)'):
+    def __init__(self, view: 'SuggestionBuilderView'):
+        super().__init__()
+        self.view = view
+
+    img_url = discord.ui.TextInput(
+        label='이미지 URL',
         style=discord.TextStyle.short,
-        placeholder='http://... (비워둬도 됨)',
+        placeholder='http://...',
         required=False,
         max_length=4000
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        topic_text = self.topic.value
+        self.view.image_url = self.img_url.value.strip() if self.img_url.value.strip() else None
+        await interaction.response.edit_message(embed=self.view.get_embed(), view=self.view)
+
+class SuggestionBuilderView(discord.ui.View):
+    def __init__(self, topic: str, master_cog, user_id: int):
+        super().__init__(timeout=900) # 15분 타임아웃
+        self.topic = topic
+        self.master_cog = master_cog
+        self.user_id = user_id
+        self.options = []
+        self.allow_multiple = False
+        self.allow_short = False
+        self.image_url = None
+
+    def get_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="🛠️ 주제 제시 빌더",
+            description=f"**주제: {self.topic}**\n\n아래 버튼들을 이용해 옵션을 추가하고 세부 설정을 관리하세요.",
+            color=discord.Color.blurple()
+        )
         
-        f = io.StringIO(self.options.value)
-        try:
-            reader = csv.reader(f, skipinitialspace=True)
-            options_list = next(reader)
-            options_list = [opt.strip() for opt in options_list if opt.strip()]
-        except Exception:
-            options_list = [opt.strip() for opt in self.options.value.split(',') if opt.strip()]
+        if self.options:
+            desc = ""
+            for idx, opt in enumerate(self.options):
+                if opt.get('desc'):
+                    desc += f"**{idx+1}. {opt['name']}**\n- {opt['desc']}\n\n"
+                else:
+                    desc += f"**{idx+1}. {opt['name']}**\n"
+            embed.add_field(name="현재 추가된 선택지", value=desc.strip(), inline=False)
+        else:
+            embed.add_field(name="현재 추가된 선택지", value="아직 선택지가 없습니다. `➕ 옵션 추가` 버튼을 눌러주세요.", inline=False)
+
+        embed.add_field(name="🔄 중복 투표", value="[O] 허용" if self.allow_multiple else "[X] 불가", inline=True)
+        embed.add_field(name="📝 단답형 허용", value="[O] 허용" if self.allow_short else "[X] 불가", inline=True)
         
-        if len(options_list) < 2:
-            await interaction.response.send_message("옵션은 쉼표(,)로 구분하여 최소 2개 이상 입력해야 합니다.", ephemeral=True)
+        if self.image_url:
+            embed.set_thumbnail(url=self.image_url)
+            embed.add_field(name="🖼️ 첨부 이미지 URL", value="설정됨 (우측 썸네일 참조)", inline=False)
+            
+        return embed
+
+    @discord.ui.button(label="옵션 추가", style=discord.ButtonStyle.secondary, emoji="➕", row=0)
+    async def add_opt_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AddOptionModal(self))
+
+    @discord.ui.button(label="옵션 제거", style=discord.ButtonStyle.secondary, emoji="➖", row=0)
+    async def rem_opt_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not self.options:
+            await interaction.response.send_message("❌ 제거할 옵션이 없습니다.", ephemeral=True)
+            return
+        await interaction.response.send_modal(RemoveOptionModal(self))
+
+    @discord.ui.button(label="이미지 첨부", style=discord.ButtonStyle.secondary, emoji="🖼️", row=0)
+    async def img_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = AddImageModal(self)
+        if self.image_url:
+            modal.img_url.default = self.image_url
+        await interaction.response.send_modal(modal)
+
+    @discord.ui.button(label="중복 투표", style=discord.ButtonStyle.primary, emoji="🔄", row=1)
+    async def toggle_multiple_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.allow_multiple = not self.allow_multiple
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    @discord.ui.button(label="단답형 허용", style=discord.ButtonStyle.primary, emoji="📝", row=1)
+    async def toggle_short_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.allow_short = not self.allow_short
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    @discord.ui.button(label="AI 가공 (다듬기)", style=discord.ButtonStyle.blurple, emoji="🤖", row=1)
+    async def ai_refine_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if len(self.options) < 2:
+            await interaction.response.send_message("❌ AI 다듬기를 사용하려면 옵션을 최소 2개 이상 입력해야 합니다.", ephemeral=True)
+            return
+            
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        
+        import cogs.master
+        refined_data = await self.master_cog.refine_topic(self.topic, self.options) 
+        
+        if not refined_data:
+            await interaction.followup.send("❌ AI 가공 처리에 실패했습니다. 잠시 후 다시 시도해주세요.", ephemeral=True)
+            return
+            
+        embed = discord.Embed(
+            title="🤖 AI가 가공한 추천 주제 구성",
+            description=f"**원문:** {self.topic}\n**가공 후:** {refined_data['topic']}",
+            color=discord.Color.purple()
+        )
+        
+        desc = ""
+        for idx, opt in enumerate(refined_data['options']):
+            desc += f"**{idx+1}. {opt.get('name', '옵션')}**\n- {opt.get('desc', '')}\n\n"
+            
+        embed.add_field(name="가공된 선택지", value=desc.strip(), inline=False)
+        
+        if 'image_prompt' in refined_data:
+            import urllib.parse
+            prompt_encoded = urllib.parse.quote(refined_data['image_prompt'])
+            image_url = f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=800&height=400&nologo=true"
+            refined_data['image_url'] = image_url
+            embed.set_thumbnail(url=image_url)
+            
+        view = RefinedTopicView(self, refined_data)
+        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+    @discord.ui.button(label="최종 제출", style=discord.ButtonStyle.success, emoji="✅", row=2)
+    async def submit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if len(self.options) < 2:
+            await interaction.response.send_message("❌ 서버에 제출하려면 옵션을 최소 2개 이상 입력해야 합니다.", ephemeral=True)
             return
 
-        parsed_options = []
-        for opt in options_list:
-            if ":" in opt:
-                name, desc = opt.split(":", 1)
-                parsed_options.append({"name": name.strip(), "desc": desc.strip()})
-            else:
-                parsed_options.append({"name": opt.strip(), "desc": ""})
-
-        is_multiple = self.allow_multiple.value.upper() == 'O'
-        is_short = self.allow_short.value.upper() == 'O'
-        img_val = self.image_url.value.strip() if self.image_url.value else None
-
-        await database.suggest_topic(topic_text, parsed_options, is_multiple, is_short, interaction.user.id, img_val)
+        # Disable all buttons
+        for child in self.children:
+            child.disabled = True
+            
+        await interaction.response.edit_message(content="⏳ 대기열 서버 스토리지에 데이터를 쓰는 중...", embed=self.get_embed(), view=self)
         
-        await interaction.response.send_message(
-            "✅ 성공적으로 주제 의견을 제출했습니다! 3일 뒤 로테이션 때 추첨 및 평가에 반영됩니다.",
-            ephemeral=True
+        await database.suggest_topic(
+            self.topic, 
+            self.options, 
+            self.allow_multiple, 
+            self.allow_short, 
+            self.user_id, 
+            self.image_url
+        )
+        
+        await interaction.followup.edit_message(
+            message_id=interaction.message.id,
+            content="🎉 **성공적으로 갈드컵 주제 의견을 제출했습니다!** 3일 뒤 로테이션 때 추첨 및 평가에 반영될 수 있습니다.",
+            view=None
         )
 
-    async def on_error(self, interaction: discord.Interaction, error: Exception):
-        logger.error(f"SuggestTopicModal error: {error}")
-        await interaction.response.send_message("❌ 주제 제출 중 오류가 발생했습니다.", ephemeral=True)
 
+class RefinedTopicView(discord.ui.View):
+    def __init__(self, builder_view: SuggestionBuilderView, refined_data: dict):
+        super().__init__(timeout=None)
+        self.builder_view = builder_view
+        self.refined_data = refined_data
+
+    @discord.ui.button(label="승인 및 덮어쓰기", style=discord.ButtonStyle.success, emoji="✅")
+    async def approve_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.builder_view.topic = self.refined_data['topic']
+        self.builder_view.options = self.refined_data['options']
+        
+        if 'image_url' in self.refined_data:
+            self.builder_view.image_url = self.refined_data['image_url']
+            
+        await interaction.response.edit_message(content="✅ **가공된 내용으로 빌더가 업데이트되었습니다.** (본창을 확인해주세요)", embed=None, view=None)
+        # Update the original builder message
+        try:
+            msg = await interaction.channel.fetch_message(interaction.message.reference.message_id) if interaction.message.reference else None
+            # Fetching the interaction message might not easily give us the ephemeral reference, 
+            # but we can edit standard logic if we had the message object. 
+            # Actually, because it's ephemeral, standard edit_message works for the view itself if triggered there,
+            # but from another ephemeral message, we might just ask them to click "Refresh" or just update it if they interact with the original builder.
+            # To fix an issue where ephemeral views can't easily cross-reference edits without the Webhook, we'll just rely on the user seeing the original UI updating when they click any button on it, OR we just let this followup serve as a notification.
+            # Wait, better yet, we can't edit the parent ephemeral message directly from this interaction without its ID. 
+            pass
+        except:
+            pass
+            
+    @discord.ui.button(label="거절 (원본 유지)", style=discord.ButtonStyle.danger, emoji="✖️")
+    async def reject_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="✖️ **AI 가공 제안을 거절했습니다.** (빌더의 내용은 그대로 유지됩니다)", embed=None, view=None)
 
 class VoteOpinionModal(discord.ui.Modal):
     def __init__(self, survey_id: int, selected_option: str):
@@ -223,7 +397,7 @@ class Survey(commands.Cog):
 
     @app_commands.command(name="주제제시", description="재미있는 갈드컵 다음 주제를 제시합니다.")
     async def suggest_topic(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(SuggestTopicModal())
+        await interaction.response.send_modal(SuggestTopicTitleModal(self.bot.get_cog('Master')))
 
     @app_commands.command(name="투표", description="현재 진행 중인 갈드컵에 익명으로 투표와 의견을 남깁니다.")
     async def vote(self, interaction: discord.Interaction):

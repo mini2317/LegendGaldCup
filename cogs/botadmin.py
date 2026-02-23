@@ -232,10 +232,12 @@ class EditTopicModal(discord.ui.Modal):
 
 
 class TopicPaginationView(discord.ui.View):
-    def __init__(self, topics: list, master_cog):
+    def __init__(self, topics: list, master_cog, active_topic_sessions: dict, user_id: int):
         super().__init__(timeout=None)
         self.topics = topics
         self.master_cog = master_cog
+        self.active_topic_sessions = active_topic_sessions
+        self.user_id = user_id
         self.current_page = 0
         self.max_pages = len(topics)
         self.update_buttons()
@@ -293,7 +295,7 @@ class TopicPaginationView(discord.ui.View):
         self.update_buttons()
         await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
         
-    @discord.ui.button(label="대기열(Queue) 끝에 장전하기", style=discord.ButtonStyle.success, emoji="✅")
+    @discord.ui.button(label="추가하기", style=discord.ButtonStyle.success, emoji="✅")
     async def queue_add_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         topic = self.topics[self.current_page]
         await database.delete_suggested_topic(topic['id'])
@@ -312,7 +314,7 @@ class TopicPaginationView(discord.ui.View):
             view=self
         )
         
-    @discord.ui.button(label="즉시 강제시작 (!투표 파괴!)", style=discord.ButtonStyle.danger, emoji="⚠️", row=1)
+    @discord.ui.button(label="즉시 강제시작", style=discord.ButtonStyle.danger, emoji="⚠️", row=1)
     async def force_pick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         topic = self.topics[self.current_page]
         await database.delete_suggested_topic(topic['id'])
@@ -350,7 +352,7 @@ class TopicPaginationView(discord.ui.View):
         self.update_buttons()
         await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
 
-    @discord.ui.button(label="AI로 가공 후 대기열 추가", style=discord.ButtonStyle.primary, emoji="🤖")
+    @discord.ui.button(label="AI로 가공 후 추가", style=discord.ButtonStyle.primary, emoji="🤖")
     async def ai_pick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(thinking=True, ephemeral=True)
         topic = self.topics[self.current_page]
@@ -393,11 +395,21 @@ class TopicPaginationView(discord.ui.View):
         generated_data = await self.master_cog.generate_topic()
         
         if generated_data:
+            # options format handling (either list of strings or list of dicts)
+            desc = ""
+            for idx, opt in enumerate(generated_data['options']):
+                if isinstance(opt, dict):
+                    desc += f"**{idx+1}. {opt.get('name', '옵션')}**\n- {opt.get('desc', '')}\n\n"
+                else:
+                    desc += f"**{idx+1}. {opt}**\n"
+                    
             embed = discord.Embed(
                 title="✨ AI 생성 주제 결과",
-                description=f"**{generated_data['topic']}**\n옵션: {', '.join(generated_data['options'])}",
+                description=f"**{generated_data['topic']}**",
                 color=discord.Color.purple()
             )
+            embed.add_field(name="새로운 선택지 구조", value=desc.strip(), inline=False)
+            
             view = AIGeneratedTopicView(self.master_cog, generated_data, interaction.user)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         else:
@@ -407,11 +419,147 @@ class TopicPaginationView(discord.ui.View):
     async def manual_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(DirectTopicModal(self.master_cog))
 
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=2)
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        import database
+        self.topics = await database.get_all_suggested_topics()
+        self.max_pages = len(self.topics)
+        if self.current_page >= self.max_pages and self.current_page > 0:
+            self.current_page = self.max_pages - 1
+        elif self.max_pages == 0:
+            self.current_page = 0
+            
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+
+    async def on_timeout(self):
+        if self.user_id in self.active_topic_sessions:
+            del self.active_topic_sessions[self.user_id]
+
+
+class QueuePaginationView(discord.ui.View):
+    def __init__(self, topics: list, master_cog, active_queue_sessions: dict, user_id: int):
+        super().__init__(timeout=None)
+        self.topics = topics
+        self.master_cog = master_cog
+        self.active_queue_sessions = active_queue_sessions
+        self.user_id = user_id
+        self.current_page = 0
+        self.max_pages = len(topics)
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.prev_btn.disabled = self.current_page == 0
+        self.next_btn.disabled = self.current_page == self.max_pages - 1
+        
+        if self.max_pages == 0:
+            self.prev_btn.disabled = True
+            self.next_btn.disabled = True
+            self.force_pick_btn.disabled = True
+            self.edit_btn.disabled = True
+            self.delete_btn.disabled = True
+
+    def get_current_embed(self) -> discord.Embed:
+        if not self.topics:
+            return discord.Embed(title="진행 대기열(Queue) 비어있음", description="아직 큐에 예약된 주제가 없습니다.", color=discord.Color.red())
+            
+        topic = self.topics[self.current_page]
+        embed = discord.Embed(
+            title=f"진행 대기열(Queue) 주제 [{self.current_page + 1}/{self.max_pages}] (ID: {topic['id']})",
+            description=f"**{topic['topic']}**",
+            color=discord.Color.green()
+        )
+        
+        desc = ""
+        for idx, opt in enumerate(topic['options']):
+            if isinstance(opt, dict):
+                desc += f"**{idx+1}. {opt.get('name', '옵션')}**\n- {opt.get('desc', '')}\n\n"
+            else:
+                desc += f"**{idx+1}. {opt}**\n"
+                
+        embed.add_field(name="옵션", value=desc.strip(), inline=False)
+        embed.add_field(name="중복허용", value="O" if topic['allow_multiple'] else "X", inline=True)
+        embed.add_field(name="단답허용", value="O" if topic['allow_short_answer'] else "X", inline=True)
+        
+        if topic.get('image_url'):
+            embed.set_thumbnail(url=topic.get('image_url'))
+            
+        embed.add_field(name="제안자", value=f"<@{topic['suggested_by']}>", inline=False)
+        return embed
+
+    @discord.ui.button(label="이전", style=discord.ButtonStyle.secondary, emoji="⬅️")
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page -= 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+
+    @discord.ui.button(label="다음", style=discord.ButtonStyle.secondary, emoji="➡️")
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page += 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+        
+    @discord.ui.button(label="이 주제 수정", style=discord.ButtonStyle.primary, emoji="✏️", row=1)
+    async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        topic = self.topics[self.current_page]
+        # is_queue 인자 추가
+        await interaction.response.send_modal(EditTopicModal(topic, self, is_queue=True))
+
+    @discord.ui.button(label="이 대기열 제거", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
+    async def delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        topic = self.topics[self.current_page]
+        import database
+        await database.delete_queued_topic(topic['id'])
+        
+        self.topics.pop(self.current_page)
+        self.max_pages = len(self.topics)
+        if self.current_page >= self.max_pages and self.current_page > 0:
+            self.current_page -= 1
+            
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+
+    @discord.ui.button(label="즉시 강제시작 (!투표 파괴!)", style=discord.ButtonStyle.danger, emoji="⚠️", row=2)
+    async def force_pick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        topic = self.topics[self.current_page]
+        import database
+        await database.delete_queued_topic(topic['id'])
+        await self.master_cog.force_new_topic(topic, interaction.user)
+        
+        self.topics.pop(self.current_page)
+        self.max_pages = len(self.topics)
+        if self.current_page >= self.max_pages and self.current_page > 0:
+            self.current_page -= 1
+        self.update_buttons()
+        
+        await interaction.response.edit_message(
+            content=f"🚨 **[{topic['topic']}]** 대기열 주제가 즉시 채택되어 전체 서버 방출되었습니다!", 
+            embed=self.get_current_embed(), 
+            view=self
+        )
+
+    @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=2)
+    async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        import database
+        self.topics = await database.get_all_queued_topics()
+        self.max_pages = len(self.topics)
+        if self.current_page >= self.max_pages and self.current_page > 0:
+            self.current_page = self.max_pages - 1
+        elif self.max_pages == 0:
+            self.current_page = 0
+            
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+
+    async def on_timeout(self):
+        if self.user_id in self.active_queue_sessions:
+            del self.active_queue_sessions[self.user_id]
 
 class BotAdmin(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.active_sessions = {}
+        self.active_topic_sessions = {}
+        self.active_queue_sessions = {}
         
     async def check_is_master(self, ctx: commands.Context) -> bool:
         if ctx.author.id != MASTER_ADMIN_ID:
@@ -503,6 +651,64 @@ class BotAdmin(commands.Cog):
                 
         await ctx.send(f"✅ 대기열 큐(Queue)에 **{success_count}개**의 AI 주제 충전이 완료되었습니다! (`!주제관리` 인터페이스로 확인 및 수정 가능)")
 
+    @commands.command(name="관리자가이드", aliases=["관리자설명서"], description="[관리자 전용] 레전드 갈드컵 봇의 관리 시스템 및 흐름을 안내합니다.")
+    async def admin_guide(self, ctx: commands.Context):
+        if not await self.check_is_bot_admin(ctx):
+            return
+            
+        import os
+        model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        
+        embed = discord.Embed(
+            title="📖 레전드 갈드컵 봇 관리자 가이드",
+            description="이 봇은 3일마다 새로운 딜레마(주제)를 자동 송출하며, 유저의 익명 투표를 집계합니다.\n봇 관리자는 아래의 흐름을 통해 주제 생태계를 관리할 수 있습니다.",
+            color=discord.Color.teal()
+        )
+        
+        embed.add_field(
+            name="1. 📥 아이디어 건의 목록 (`!주제관리`)",
+            value=(
+                "일반 유저들이 `/주제제시` 로 건의한 아이디어들이 임시 보관되는 곳입니다.\n"
+                "• 여기서 관리자는 아이디어를 심사하고 텍스트를 **수정**할 수 있습니다.\n"
+                "• 마음에 드는 주제는 **[대기열(Queue) 끝에 장전하기]** 버튼을 눌러 실제 방송 대기열로 넘깁니다.\n"
+                "• **[AI로 가공 후 추가]** 를 누르면 AI가 제목/설명을 다듬어 대기열로 넘깁니다."
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="2. ⏱️ 실제 방송 대기열 (`!대기열관리`)",
+            value=(
+                "다음 차례에 전체 서버로 송출될 주제들이 줄 서 있는 **찐 대기열(Queue)**입니다.\n"
+                "• 3일 타이머가 끝나면 이 대기열의 가장 첫 번째 주제가 다음 갈드컵으로 시작됩니다.\n"
+                "• 이곳의 순서를 모니터링하고 맘에 안 들면 수정/삭제할 수 있습니다.\n"
+                "• **[즉시 강제시작]** 을 누르면 타이머를 무시하고 이 주제를 즉시 런칭시킵니다."
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="3. 🤖 AI 자동 생산 (`!AI주제충전 <개수>`)",
+            value=(
+                "봇 관리자가 대기열을 채워두기 귀찮거나 유저 건의가 말랐을 때 쓰는 치트키입니다.\n"
+                "• AI가 즉석에서 흥미로운 갈드컵 주제와 이미지 프롬프트를 창작해 대기열에 바로 밀어넣습니다.\n"
+                f"• 현재 탑재된 인공지능 모델: `{model_name}`\n"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚠️ 주의사항",
+            value=(
+                "• `!주제관리` 및 `!대기열관리` 인터페이스는 DM으로 전송됩니다.\n"
+                "• 두 인터페이스는 독립된 시스템을 사용하므로 **동시에 각각 창을 띄워두고 작업**할 수 있지만, 동일한 창을 두 번 띄우는 것은 방지됩니다.\n"
+                "• 대기열이 텅 비어있을 경우, 봇은 스스로 판단하여 AI 주제를 즉석 생성하거나 하드코딩된 기본 주제를 켭니다."
+            ),
+            inline=False
+        )
+        
+        await ctx.send(embed=embed)
+
     @commands.command(name="업데이트", description="[총관리자 전용] Github 저장소에서 최신 코드를 즉시 불러오고 봇을 리로드합니다.")
     async def update_bot(self, ctx: commands.Context):
         if str(ctx.author.id) != str(MASTER_ADMIN_ID):
@@ -555,32 +761,26 @@ class BotAdmin(commands.Cog):
             return
             
         # 중복 체크
-        if ctx.author.id in self.active_sessions:
-            await ctx.send("❌ 이미 활성화된 관리 창이 있습니다. 이전 인터페이스를 그대로 사용해주세요.")
+        if ctx.author.id in self.active_topic_sessions:
+            await ctx.send("❌ 이미 활성화된 주제 관리 창이 있습니다. 이전 인터페이스를 그대로 사용해주세요.")
             return
         
         # DM 전송 시도
         try:
-            self.active_sessions[ctx.author.id] = 'manage_topics'
+            self.active_topic_sessions[ctx.author.id] = True
             topics = await database.get_all_suggested_topics()
             master_cog = self.bot.get_cog('Master')
             
-            view = TopicPaginationView(topics, master_cog)
-            # monkey-patch timeout to cleanup dict
-            async def on_timeout_override():
-                if ctx.author.id in self.active_sessions:
-                    del self.active_sessions[ctx.author.id]
-            view.on_timeout = on_timeout_override
-            
+            view = TopicPaginationView(topics, master_cog, self.active_topic_sessions, ctx.author.id)
             embed = view.get_current_embed()
             
             await ctx.author.send(embed=embed, view=view)
             await ctx.send("✅ DM으로 아이디어 주제 관리 인터페이스를 전송했습니다.")
         except discord.Forbidden:
-            if ctx.author.id in self.active_sessions: del self.active_sessions[ctx.author.id]
+            if ctx.author.id in self.active_topic_sessions: del self.active_topic_sessions[ctx.author.id]
             await ctx.send("❌ DM 전송이 막혀있습니다. 개인 설정에서 서버 구성원의 다이렉트 메시지를 허용해주세요.")
         except Exception as e:
-            if ctx.author.id in self.active_sessions: del self.active_sessions[ctx.author.id]
+            if ctx.author.id in self.active_topic_sessions: del self.active_topic_sessions[ctx.author.id]
             logger.error(f"Error in manage_topics: {e}")
             await ctx.send("❌ 명령어 처리 중 오류가 발생했습니다.")
 
@@ -590,25 +790,25 @@ class BotAdmin(commands.Cog):
             return
             
         # 중복 체크
-        if ctx.author.id in self.active_sessions:
-            await ctx.send("❌ 이미 활성화된 관리 창이 있습니다. 이전 인터페이스를 그대로 사용해주세요.")
+        if ctx.author.id in self.active_queue_sessions:
+            await ctx.send("❌ 이미 활성화된 대기열 관리 창이 있습니다. 이전 인터페이스를 그대로 사용해주세요.")
             return
             
         try:
-            self.active_sessions[ctx.author.id] = 'manage_queue'
+            self.active_queue_sessions[ctx.author.id] = True
             topics = await database.get_all_queued_topics()
             master_cog = self.bot.get_cog('Master')
             
-            view = QueuePaginationView(topics, master_cog, self.active_sessions, ctx.author.id)
+            view = QueuePaginationView(topics, master_cog, self.active_queue_sessions, ctx.author.id)
             embed = view.get_current_embed()
             
             await ctx.author.send(embed=embed, view=view)
             await ctx.send("✅ DM으로 진행 대기열(Queue) 관리 인터페이스를 전송했습니다.")
         except discord.Forbidden:
-            if ctx.author.id in self.active_sessions: del self.active_sessions[ctx.author.id]
+            if ctx.author.id in self.active_queue_sessions: del self.active_queue_sessions[ctx.author.id]
             await ctx.send("❌ DM 전송이 막혀있습니다. 개인 설정에서 서버 구성원의 다이렉트 메시지를 허용해주세요.")
         except Exception as e:
-            if ctx.author.id in self.active_sessions: del self.active_sessions[ctx.author.id]
+            if ctx.author.id in self.active_queue_sessions: del self.active_queue_sessions[ctx.author.id]
             logger.error(f"Error in manage_queue: {e}")
             await ctx.send("❌ 명령어 처리 중 오류가 발생했습니다.")
 

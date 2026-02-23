@@ -88,6 +88,37 @@ class Master(commands.Cog):
             logger.error(f"Error generating topic with Gemini: {e}")
             return None
 
+    async def refine_topic(self, topic: str, options: list) -> dict:
+        if not self.model or not self.prompts:
+            return None
+            
+        system = self.prompts.get("system", "")
+        # Since we might not have a dedicated prompt for refining, we'll build an ad-hoc one based on system principles
+        prompt = (
+            f"{system}\n\n"
+            f"유저가 제안한 다음 주제와 선택지들을 바탕으로, 아주 흥미롭고 세련된 '메인스트림 인터넷 커뮤니티' 감성의 황금 밸런스 갈드컵 (VS 게임) 주제로 완전히 다듬고 가공해주세요.\n"
+            f"- 유저 제안 주제: {topic}\n"
+            f"- 유저 제안 옵션들: {options}\n\n"
+            f"응답은 반드시 아래 JSON 형식을 엄격하게 준수해야 하며 다른 말은 하지 마세요.\n"
+            f'{{\n  "topic": "가공된 흥미로운 주제 (VS 형식의 제목)",\n  "options": [\n    {{"name": "가공된 짧은 선택지명 1", "desc": "가공된 톡톡 튀는 설명"}},\n    {{"name": "가공된 짧은 선택지명 2", "desc": "가공된 톡톡 튀는 설명"}}\n  ],\n  "image_prompt": "An impressive anime illustration of [주제 영어 번역], highly detailed"\n}}'
+        )
+        
+        try:
+            response = await self.model.generate_content_async(prompt)
+            text = response.text.strip()
+            if text.startswith("```json"):
+                text = text[7:]
+            if text.startswith("```"):
+                text = text[3:]
+            if text.endswith("```"):
+                text = text[:-3]
+                
+            data = json.loads(text.strip())
+            return data
+        except Exception as e:
+            logger.error(f"Error refining topic with Gemini: {e}")
+            return None
+
     async def cluster_opinions(self, topic: str, opinions: list) -> list:
         if not self.model or not self.prompts or not opinions:
             return []
