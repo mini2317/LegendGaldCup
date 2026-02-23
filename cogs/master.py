@@ -348,7 +348,7 @@ class Master(commands.Cog):
         await self.process_survey_rotation(forced_next_topic=topic_data, admin_user=admin_user)
         # Note: we no longer restart survey_loop here because the 1-minute polled loop naturally handles the timing.
 
-    async def _apply_new_topic(self, new_topic_data: dict, is_master: bool=False, admin_force_user: discord.User=None, is_new_channel: bool=False):
+    async def _apply_new_topic(self, new_topic_data: dict, is_master: bool=False, admin_force_user: discord.User=None):
         channels = await database.get_all_active_announcement_channels()
         
         # Determine image_url
@@ -372,94 +372,95 @@ class Master(commands.Cog):
         end_time = int((datetime.now(timezone.utc) + timedelta(hours=72)).timestamp())
         
         for guild_id, channel_id in channels:
+            await self.announce_new_topic(guild_id, channel_id, new_topic_data, is_master, admin_force_user)
+            
+    async def announce_new_topic(self, guild_id, channel_id, new_topic_data, is_master, admin_force_user, is_new_channel:bool = False):
+        try:
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                channel = await self.bot.fetch_channel(channel_id)
+        except discord.NotFound:
+            # Channel deleted! Disable it and DM server owner
+            await database.set_announcement_enabled(guild_id, 0)
             try:
-                channel = self.bot.get_channel(channel_id)
-                if not channel:
-                    channel = await self.bot.fetch_channel(channel_id)
-            except discord.NotFound:
-                # Channel deleted! Disable it and DM server owner
-                await database.set_announcement_enabled(guild_id, 0)
-                try:
-                    guild = self.bot.get_guild(guild_id)
-                    if guild and guild.owner:
-                        await guild.owner.send(f"⚠️ **[레전드 갈드컵]** 서버({guild.name})의 공지 채널이 삭제되었거나 봇이 접근할 수 없어 갈드컵 알림 송출이 자동 비활성화되었습니다. 서버 설정에서 다시 `/공지채널설정`을 진행해주세요.")
-                except Exception:
-                    pass
-                continue
+                guild = self.bot.get_guild(guild_id)
+                if guild and guild.owner:
+                    await guild.owner.send(f"⚠️ **[레전드 갈드컵]** 서버({guild.name})의 공지 채널이 삭제되었거나 봇이 접근할 수 없어 갈드컵 알림 송출이 자동 비활성화되었습니다. 서버 설정에서 다시 `/공지채널설정`을 진행해주세요.")
             except Exception:
-                continue
+                pass
+            continue
+        except Exception:
+            continue
 
-            manager_text = ""
-            if is_new_channel:
-                manager_text = "📢 현재 진행 중인 갈드컵 주제\n"
-            elif admin_force_user:
-                manager_text = f"🚨 **봇 관리자({admin_force_user.name})에 의해 갈드컵 주제가 긴급 변경되었습니다!**"
-            elif is_master:
-                manager_text = "✨ 마스터(AI)가 새롭고 흥미로운 갈드컵 주제를 가져왔습니다!"
+        manager_text = ""
+        if admin_force_user:
+            manager_text = f"🚨 **봇 관리자({admin_force_user.name})에 의해 갈드컵 주제가 긴급 변경되었습니다!**"
+        elif is_master:
+            manager_text = "✨ 마스터(AI)가 새롭고 흥미로운 갈드컵 주제를 가져왔습니다!"
+        else:
+            manager_text = "🎉 제안 목록 심사를 통과하여 선정된 이번 주 갈드컵 주제입니다!"
+        
+        embed = discord.Embed(
+            title=f"📢 현재 진행 중인 갈드컵 주제: {new_topic_data['topic']}",
+            description=f"{manager_text}\n\n아래 선택바를 클릭해 당신의 선택과 의견을 남겨주세요!\n⏳ **투표 마감 예정:** <t:{end_time}:R>",
+            color=discord.Color.yellow()
+        )
+        
+        desc_text = ""
+        for idx, opt in enumerate(new_topic_data['options']):
+            if isinstance(opt, dict):
+                desc_text += f"**{idx+1}. {opt.get('name', '옵션')}**\n- {opt.get('desc', '')}\n\n"
             else:
-                manager_text = "🎉 제안 목록 심사를 통과하여 선정된 이번 주 갈드컵 주제입니다!"
-            
-            embed = discord.Embed(
-                title=f"📣 새로운 주제: {new_topic_data['topic']}",
-                description=f"{manager_text}\n\n아래 선택바를 클릭해 당신의 선택과 의견을 남겨주세요!\n⏳ **투표 마감 예정:** <t:{end_time}:R>",
-                color=discord.Color.green() if not admin_force_user else discord.Color.brand_red()
-            )
-            
-            desc_text = ""
-            for idx, opt in enumerate(new_topic_data['options']):
-                if isinstance(opt, dict):
-                    desc_text += f"**{idx+1}. {opt.get('name', '옵션')}**\n- {opt.get('desc', '')}\n\n"
-                else:
-                    desc_text += f"**{idx+1}. {opt}**\n"
-                    
-            if desc_text:
-                embed.add_field(name="선택지", value=desc_text.strip(), inline=False)
+                desc_text += f"**{idx+1}. {opt}**\n"
                 
-            if image_url:
-                import urllib.parse
-                parsed = urllib.parse.urlparse(image_url)
-                is_image = parsed.path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp')) or 'pollinations.ai' in image_url
-                
-                if is_image:
-                    embed.set_image(url=image_url)
-                else:
-                    embed.add_field(name="🔗 참고 링크", value=image_url, inline=False)
+        if desc_text:
+            embed.add_field(name="선택지", value=desc_text.strip(), inline=False)
             
-            from cogs.survey import VoteSelectView
-            view = VoteSelectView(
-                new_survey_id, 
-                new_topic_data['options'], 
-                new_topic_data.get('allow_short_answer', False), 
-                new_topic_data.get('allow_multiple', False)
-            )
+        if image_url:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(image_url)
+            is_image = parsed.path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp')) or 'pollinations.ai' in image_url
             
-            # 이전 메시지 고정 해제 (bot 메시지만 추출)
+            if is_image:
+                embed.set_image(url=image_url)
+            else:
+                embed.add_field(name="🔗 참고 링크", value=image_url, inline=False)
+        
+        from cogs.survey import VoteSelectView
+        view = VoteSelectView(
+            new_survey_id, 
+            new_topic_data['options'], 
+            new_topic_data.get('allow_short_answer', False), 
+            new_topic_data.get('allow_multiple', False)
+        )
+        
+        # 이전 메시지 고정 해제 (bot 메시지만 추출)
+        try:
+            pins = await channel.pins()
+            for p_msg in pins:
+                if p_msg.author == self.bot.user and p_msg.embeds and "📣 새로운 주제" in str(p_msg.embeds[0].title):
+                    await p_msg.unpin()
+                    break
+        except Exception:
+            pass
+            
+        try:
+            msg = await channel.send(embed=embed, view=view)
             try:
-                pins = await channel.pins()
-                for p_msg in pins:
-                    if p_msg.author == self.bot.user and p_msg.embeds and "📣 새로운 주제" in str(p_msg.embeds[0].title):
-                        await p_msg.unpin()
-                        break
+                await msg.pin(reason="최신 갈드컵 주제 메시지 지정을 위해 고정")
+            except discord.Forbidden:
+                pass # 메시지는 보냈지만 핀 고정 권한이 없는 경우 조용히 무시
+        except discord.Forbidden:
+            # 메시지 채널 전송 권한 자체가 없는 경우
+            await database.set_announcement_enabled(guild_id, 0)
+            try:
+                guild = self.bot.get_guild(guild_id)
+                if guild and guild.owner:
+                    await guild.owner.send(f"⚠️ **[레전드 갈드컵]** 서버({guild.name})의 공지 채널에 메시지 전송 권한이 없어 송출에 실패했습니다. 알림이 자동 비활성화되었으니 봇에게 권한을 주고 다시 `/공지채널설정`을 올려주세요.")
             except Exception:
                 pass
-                
-            try:
-                msg = await channel.send(embed=embed, view=view)
-                try:
-                    await msg.pin(reason="최신 갈드컵 주제 메시지 지정을 위해 고정")
-                except discord.Forbidden:
-                    pass # 메시지는 보냈지만 핀 고정 권한이 없는 경우 조용히 무시
-            except discord.Forbidden:
-                # 메시지 채널 전송 권한 자체가 없는 경우
-                await database.set_announcement_enabled(guild_id, 0)
-                try:
-                    guild = self.bot.get_guild(guild_id)
-                    if guild and guild.owner:
-                        await guild.owner.send(f"⚠️ **[레전드 갈드컵]** 서버({guild.name})의 공지 채널에 메시지 전송 권한이 없어 송출에 실패했습니다. 알림이 자동 비활성화되었으니 봇에게 권한을 주고 다시 `/공지채널설정`을 올려주세요.")
-                except Exception:
-                    pass
-            except Exception as e:
-                pass
+        except Exception as e:
+            pass
 
     @app_commands.command(name="강제주기전환_테스트용", description="[관리자 전용] 3일 주기를 무시하고 즉시 다음 설문조사로 넘어갑니다.")
     @app_commands.default_permissions(administrator=True)
