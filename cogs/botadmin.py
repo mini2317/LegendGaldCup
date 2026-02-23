@@ -10,6 +10,14 @@ import asyncio
 
 logger = logging.getLogger('discord')
 
+async def check_and_trigger_empty_survey(bot: commands.Bot):
+    """대기열에 새로 주제가 들어왔을 때, 현재 진행 중인 투표가 없으면 즉시 시작시킵니다."""
+    active_survey = await database.get_active_survey()
+    if not active_survey:
+        master_cog = bot.get_cog('Master')
+        if master_cog:
+            await master_cog.process_survey_rotation()
+
 MASTER_ADMIN_ID = int(os.getenv("MASTER_ADMIN_ID", "0"))
 
 class DirectTopicModal(discord.ui.Modal, title='갈드컵 강제 새 주제 지정'):
@@ -123,6 +131,8 @@ class AIGeneratedTopicView(discord.ui.View):
             'suggested_by': interaction.user.id,
             'image_url': self.generated_data.get('image_url')
         })
+        await check_and_trigger_empty_survey(interaction.client)
+        
         for item in self.children:
             item.disabled = True
         await interaction.response.edit_message(content="✅ **AI 제안 주제가 대기열 리스트 끝에 신규로 장전되었습니다!**", view=self)
@@ -301,6 +311,7 @@ class TopicPaginationView(discord.ui.View):
         topic = self.topics[self.current_page]
         await database.delete_suggested_topic(topic['id'])
         await database.add_to_queue(topic)
+        await check_and_trigger_empty_survey(interaction.client)
         
         # UI에서 삭제 처리
         self.topics.pop(self.current_page)
@@ -379,6 +390,7 @@ class TopicPaginationView(discord.ui.View):
                 'suggested_by': topic['suggested_by'],
                 'image_url': image_url
             })
+            await check_and_trigger_empty_survey(interaction.client)
             
             self.topics.pop(self.current_page)
             self.max_pages = len(self.topics)
@@ -660,6 +672,7 @@ class BotAdmin(commands.Cog):
                 })
                 success_count += 1
                 
+        await check_and_trigger_empty_survey(self.bot) # Added call here
         await ctx.send(f"✅ 대기열 큐(Queue)에 **{success_count}개**의 AI 주제 충전이 완료되었습니다! (`!주제관리` 인터페이스로 확인 및 수정 가능)")
 
     @commands.command(name="관리자가이드", aliases=["관리자설명서"], description="[관리자 전용] 레전드 갈드컵 봇의 관리 시스템 및 흐름을 안내합니다.")
@@ -730,18 +743,28 @@ class BotAdmin(commands.Cog):
         
         import subprocess
         try:
-            # git 버전을 체크하고 pull 받음
+            # 1. git fetch --all
+            await asyncio.to_thread(
+                subprocess.run,
+                ['git', 'fetch', '--all'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            # 2. git reset --hard origin/main
             result = await asyncio.to_thread(
                 subprocess.run,
-                ['git', 'pull'],
+                ['git', 'reset', '--hard', 'origin/main'],
                 capture_output=True,
                 text=True,
                 check=True
             )
             
             output = result.stdout.strip()
-            if "Already up to date" in output or "이미 업데이트 상태입니다" in output:
-                await ctx.send("✅ 이미 최신 버전입니다. 업데이트할 내용이 없습니다.")
+            # Note: "HEAD is now at" is the typical output of git reset --hard
+            if not output:
+                await ctx.send("✅ 이미 최신 상태이거나 출력이 없습니다.")
                 return
                 
             await ctx.send(f"📦 업데이트 내역이 감지되었습니다:\n```\n{output[:1800]}\n```\n🔄 최신 코드를 즉시 적용하기 위해 모듈들(Cogs) 무중단 패치를 시작합니다...")
