@@ -1,0 +1,55 @@
+import discord
+from discord.ext import commands
+from discord import app_commands
+import logging
+from database import set_announcement_channel, get_active_survey
+
+logger = logging.getLogger('discord')
+
+class Admin(commands.Cog):
+    def __init__(self, bot: commands.Bot):
+        self.bot = bot
+
+    @app_commands.command(name="공지채널설정", description="[관리자 전용] 주기적으로 설문조사 결과 및 새 주제가 공지될 채널을 지정합니다.")
+    @app_commands.default_permissions(administrator=True)
+    async def set_announce_channel(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        await set_announcement_channel(interaction.guild_id, channel.id)
+        logger.info(f"Guild {interaction.guild_id} set announcement channel to {channel.id}")
+        
+        await interaction.response.send_message(
+            f"✅ 알림 공지 채널이 {channel.mention} (으)로 설정되었습니다.", 
+            ephemeral=True
+        )
+
+        # 등록되는 즉시 현재 진행 중인 주제를 해당 채널에 제시
+        survey = await get_active_survey()
+        if survey:
+            embed = discord.Embed(
+                title=f"📢 현재 진행 중인 갈드컵 주제",
+                description=f"**{survey['topic']}**",
+                color=discord.Color.gold()
+            )
+            embed.add_field(name="선택지", value="\n".join([f"- {opt}" for opt in survey['options']]), inline=False)
+            embed.set_footer(text="설문조사 참가 방법: 채팅창에 `/투표` 를 입력해주세요!")
+            
+            try:
+                await channel.send(embed=embed)
+            except discord.Forbidden:
+                logger.warning(f"Failed to send active survey to {channel.id} due to permission issue.")
+        else:
+            try:
+                await channel.send("✅ 이 채널로 설문조사 알림이 전송됩니다!\n(현재 진행 중인 주제가 없습니다. 마스터의 새 주제를 기다려주세요.)")
+            except Exception:
+                pass
+
+    @app_commands.command(name="알림설정", description="[관리자 전용] 갈드컵 새 주제 및 결과 공지를 켜거나 끕니다.")
+    @app_commands.describe(enable="알림 송출 여부 (True=켜기, False=끄기)")
+    @app_commands.default_permissions(administrator=True)
+    async def toggle_announcement(self, interaction: discord.Interaction, enable: bool):
+        from database import set_announcement_enabled
+        await set_announcement_enabled(interaction.guild_id, 1 if enable else 0)
+        status = "✅ 켜짐(ON)" if enable else "🔇 꺼짐(OFF)"
+        await interaction.response.send_message(f"현재 서버의 갈드컵 공지 알림이 **{status}** 상태로 변경되었습니다.", ephemeral=True)
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(Admin(bot))
