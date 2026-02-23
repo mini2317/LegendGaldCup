@@ -35,14 +35,27 @@ class General(commands.Cog):
             color=discord.Color.green()
         )
         
-        embed.add_field(name="/소개", value="봇에 대한 간단한 소개를 봅니다.", inline=False)
-        embed.add_field(name="/도움말", value="현재 보고 계신 도움말을 출력합니다.", inline=False)
-        embed.add_field(name="/투표", value="현재 진행 중인 주제에 투표하고 익명 의견(300자 이내)을 남깁니다. (다시 입력 시 수정됩니다)", inline=False)
-        embed.add_field(name="/현재상황", value="현재 진행 중인 주제와 다른 사람들의 익명 의견을 열람합니다.", inline=False)
-        embed.add_field(name="/주제제시", value="다음 3일 간 진행할 재미있는 갈드컵 주제와 옵션들을 모집합니다. (제한 없이 언제든 여러 개 제출 가능)", inline=False)
-        embed.add_field(name="/통계 (준비중)", value="과거 설문조사들의 전체 결과 및 통계를 조회합니다.", inline=False)
-        embed.add_field(name="/공지채널설정", value="[서버 관리자 전용] 3일 주기로 설문 결과 및 새 주제가 공지될 채널을 지정합니다.", inline=False)
-        embed.add_field(name="/알림설정", value="[서버 관리자 전용] 지정된 채널로 향하는 갈드컵 자동 공지를 켜고(True) 끌(False) 수 있습니다.", inline=False)
+        embed.add_field(
+            name="🎮 일반 명령어",
+            value=(
+                "`/소개`: 봇에 대한 간단한 소개를 봅니다.\n"
+                "`/도움말`: 현재 보고 계신 도움말을 출력합니다.\n"
+                "`/투표`: 현재 진행 중인 주제에 투표하고 익명 의견(300자 이내)을 남깁니다. (다시 입력 시 수정)\n"
+                "`/현재상황`: 현재 진행 중인 주제와 다른 사람들의 익명 의견을 열람합니다.\n"
+                "`/주제제시`: 다음 3일 간 진행할 재미있는 갈드컵 주제와 옵션들을 모집합니다.\n"
+                "`/통계 (준비중)`: 과거 설문조사들의 전체 결과 및 통계를 조회합니다."
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⚙️ 서버 관리자 명령어",
+            value=(
+                "`/공지채널설정`: 3일 주기로 설문 결과 및 새 주제가 공지될 채널을 지정합니다.\n"
+                "`/알림설정 [True/False]`: 지정된 채널로 향하는 갈드컵 자동 공지를 켜고 끌 수 있습니다."
+            ),
+            inline=False
+        )
         
         # 봇 관리자 확인 로직
         is_bot_admin = await database.is_bot_admin(interaction.user.id, MASTER_ADMIN_ID)

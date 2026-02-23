@@ -348,7 +348,7 @@ class Master(commands.Cog):
         await self.process_survey_rotation(forced_next_topic=topic_data, admin_user=admin_user)
         # Note: we no longer restart survey_loop here because the 1-minute polled loop naturally handles the timing.
 
-    async def _apply_new_topic(self, new_topic_data: dict, is_master: bool=False, admin_force_user: discord.User=None):
+    async def _apply_new_topic(self, new_topic_data: dict, is_master: bool=False, admin_force_user: discord.User=None, is_new_channel: bool=False):
         channels = await database.get_all_active_announcement_channels()
         
         # Determine image_url
@@ -390,7 +390,9 @@ class Master(commands.Cog):
                 continue
 
             manager_text = ""
-            if admin_force_user:
+            if is_new_channel:
+                manager_text = "📢 현재 진행 중인 갈드컵 주제\n"
+            elif admin_force_user:
                 manager_text = f"🚨 **봇 관리자({admin_force_user.name})에 의해 갈드컵 주제가 긴급 변경되었습니다!**"
             elif is_master:
                 manager_text = "✨ 마스터(AI)가 새롭고 흥미로운 갈드컵 주제를 가져왔습니다!"

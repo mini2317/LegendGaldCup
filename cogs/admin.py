@@ -42,18 +42,13 @@ class Admin(commands.Cog):
 
         survey = await get_active_survey()
         if survey:
-            embed = discord.Embed(
-                title=f"📢 현재 진행 중인 갈드컵 주제",
-                description=f"**{survey['topic']}**",
-                color=discord.Color.gold()
-            )
-            embed.add_field(name="선택지", value="\n".join([f"- {opt}" for opt in survey['options']]), inline=False)
-            embed.set_footer(text="설문조사 참가 방법: 채팅창에 `/투표` 를 입력해주세요!")
-            
-            try:
-                await channel.send(embed=embed)
-            except Exception:
-                pass
+            master_cog = self.bot.get_cog("Master")
+            if master_cog:
+                embed = await master_cog._apply_new_topic(survey, is_new_channel=True)
+                try:
+                    await channel.send(embed=embed)
+                except Exception:
+                    pass
 
     @app_commands.command(name="알림설정", description="[관리자 전용] 갈드컵 새 주제 및 결과 공지를 켜거나 끕니다.")
     @app_commands.describe(enable="알림 송출 여부 (True=켜기, False=끄기)")
