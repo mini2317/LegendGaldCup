@@ -6,6 +6,7 @@ import database
 import os
 import json
 import shlex
+import asyncio
 
 logger = logging.getLogger('discord')
 

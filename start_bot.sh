@@ -3,6 +3,9 @@
 
 echo "Starting Legend GaldCup Environment Setup..."
 
+# Make sure sibling scripts are executable
+chmod +x start_bot.sh stop_bot.sh restart_bot.sh 2>/dev/null
+
 # 1. Check if Python 3 is installed, install if missing
 if ! command -v python3 &> /dev/null; then
     echo "Python 3 is not installed. Attempting to install Python 3 and venv..."
