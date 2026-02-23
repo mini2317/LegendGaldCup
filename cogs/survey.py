@@ -464,6 +464,14 @@ class Survey(commands.Cog):
             color=discord.Color.gold()
         )
         
+        try:
+            from datetime import datetime, timezone, timedelta
+            start_time = datetime.strptime(survey['start_time'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            end_time = int((start_time + timedelta(hours=72)).timestamp())
+            embed.description += f"\n⏳ **투표 마감 예정:** <t:{end_time}:R>"
+        except Exception:
+            pass
+        
         # 옵션별 통계 표시 (다중선택의 경우 각각을 카운트)
         option_names = [opt.get('name', str(opt)) if isinstance(opt, dict) else str(opt) for opt in survey['options']]
         option_counts = {name: 0 for name in option_names}

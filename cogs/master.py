@@ -368,11 +368,24 @@ class Master(commands.Cog):
         )
         
         # Announce new survey
+        from datetime import datetime, timezone, timedelta
+        end_time = int((datetime.now(timezone.utc) + timedelta(hours=72)).timestamp())
+        
         for guild_id, channel_id in channels:
             try:
                 channel = self.bot.get_channel(channel_id)
                 if not channel:
                     channel = await self.bot.fetch_channel(channel_id)
+            except discord.NotFound:
+                # Channel deleted! Disable it and DM server owner
+                await database.set_announcement_enabled(guild_id, 0)
+                try:
+                    guild = self.bot.get_guild(guild_id)
+                    if guild and guild.owner:
+                        await guild.owner.send(f"⚠️ **[레전드 갈드컵]** 서버({guild.name})의 공지 채널이 삭제되었거나 봇이 접근할 수 없어 갈드컵 알림 송출이 자동 비활성화되었습니다. 서버 설정에서 다시 `/공지채널설정`을 진행해주세요.")
+                except Exception:
+                    pass
+                continue
             except Exception:
                 continue
 
@@ -386,7 +399,7 @@ class Master(commands.Cog):
             
             embed = discord.Embed(
                 title=f"📣 새로운 주제: {new_topic_data['topic']}",
-                description=f"{manager_text}\n\n채팅창에 `/투표` 를 입력해 당신의 선택과 의견을 남겨주세요!",
+                description=f"{manager_text}\n\n아래 선택바를 클릭해 당신의 선택과 의견을 남겨주세요!\n⏳ **투표 마감 예정:** <t:{end_time}:R>",
                 color=discord.Color.green() if not admin_force_user else discord.Color.brand_red()
             )
             
@@ -410,12 +423,41 @@ class Master(commands.Cog):
                 else:
                     embed.add_field(name="🔗 참고 링크", value=image_url, inline=False)
             
+            from cogs.survey import VoteSelectView
+            view = VoteSelectView(
+                new_survey_id, 
+                new_topic_data['options'], 
+                new_topic_data.get('allow_short_answer', False), 
+                new_topic_data.get('allow_multiple', False)
+            )
+            
+            # 이전 메시지 고정 해제 (bot 메시지만 추출)
             try:
-                await channel.send(embed=embed)
+                pins = await channel.pins()
+                for p_msg in pins:
+                    if p_msg.author == self.bot.user and p_msg.embeds and "📣 새로운 주제" in str(p_msg.embeds[0].title):
+                        await p_msg.unpin()
+                        break
+            except Exception:
+                pass
+                
+            try:
+                msg = await channel.send(embed=embed, view=view)
+                try:
+                    await msg.pin(reason="최신 갈드컵 주제 메시지 지정을 위해 고정")
+                except discord.Forbidden:
+                    pass # 메시지는 보냈지만 핀 고정 권한이 없는 경우 조용히 무시
+            except discord.Forbidden:
+                # 메시지 채널 전송 권한 자체가 없는 경우
+                await database.set_announcement_enabled(guild_id, 0)
+                try:
+                    guild = self.bot.get_guild(guild_id)
+                    if guild and guild.owner:
+                        await guild.owner.send(f"⚠️ **[레전드 갈드컵]** 서버({guild.name})의 공지 채널에 메시지 전송 권한이 없어 송출에 실패했습니다. 알림이 자동 비활성화되었으니 봇에게 권한을 주고 다시 `/공지채널설정`을 올려주세요.")
+                except Exception:
+                    pass
             except Exception as e:
                 pass
-
-
 
     @app_commands.command(name="강제주기전환_테스트용", description="[관리자 전용] 3일 주기를 무시하고 즉시 다음 설문조사로 넘어갑니다.")
     @app_commands.default_permissions(administrator=True)
