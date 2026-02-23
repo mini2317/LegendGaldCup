@@ -48,23 +48,27 @@ class General(commands.Cog):
         is_master = (interaction.user.id == MASTER_ADMIN_ID)
 
         if is_bot_admin or is_master:
-            embed.add_field(name="\u200b", value="**🛡️ 봇 관리자 전용 명령어 (슬래시 `/` 대신 느낌표 `!` 사용)**", inline=False)
-            embed.add_field(name="!관리자설명서", value="레전드 갈드컵 봇의 관리 시스템 및 흐름(Queue 시스템 등)을 안내합니다.", inline=False)
-            embed.add_field(name="!관리자목록", value="현재 봇 기능 권한을 부여받은 관리자 리스트를 열람합니다.", inline=False)
-            embed.add_field(name="!주제관리", value="DM으로 대중이 건의한 아이디어 주제들을 열람하고, 검토를 통해 진행 `대기열(Queue)`로 승격시킵니다.", inline=False)
-            
-            # Consolidated admin commands
             embed.add_field(
-                name="🛠️ 관리자 명령어 (총관리자/부관리자 전용)",
-                value="`!주제관리`: 유저 제안 확인, 승인(대기열 장전), AI 가공\n`!대기열관리`: 다음 송출 큐(Queue) 확인 및 즉시 강제 송출\n`!AI주제충전 <개수>`: AI 자체 생성 주제를 대기열에 예약\n`!주제강제종료`: 현재 진행 중인 투표를 마감하고 다음 주제로 스킵\n`!부관리자추가 / !부관리자제거`: 봇 제어 권한 주기",
+                name="🛡️ 봇 관리자 전용 명령어 (슬래시 `/` 대신 느낌표 `!` 사용)",
+                value=(
+                    "`!주제관리`: 유저 건의 주제 열람, 승인, 편집 및 AI 다듬기\n"
+                    "`!대기열관리`: 다음 송출 큐(Queue) 확인, 순서 편집, 즉시 강제 송출\n"
+                    "`!AI주제충전 <개수>`: AI 자체 생성 주제를 대기열 버퍼에 다이렉트 예약\n"
+                    "`!주제강제종료`: 현재 진행 중인 투표를 즉시 마감하고 다음 주제 송출\n"
+                    "`!관리자목록`: 권한을 부여받은 총/부관리자 현황 열람\n"
+                    "`!관리자설명서`: 봇의 주제 큐(Queue) 송출 작동 원리 안내"
+                ),
                 inline=False
             )
             
             if is_master:
-                embed.add_field(name="\u200b", value="**👑 최고 관리자 전용 명령어**", inline=False)
                 embed.add_field(
-                    name="🤖 최고 관리자 전용",
-                    value="`!업데이트`: Github 저장소에서 최신 코드를 불러오고 봇을 백그라운드 리부팅 (종속성 재설치 지원)\n만약 봇에 치명적 문제가 있거나 먹통이면 이 명령어를 서버에 쳐서 살릴 수 있습니다.",
+                    name="👑 최고 관리자 전용 명령어",
+                    value=(
+                        "`!부관리자추가 [@유저] / !부관리자제거 [@유저]`: 봇 제어 권한 부여 및 박탈\n"
+                        "`!업데이트`: Github 최신 코드 호출 및 **단절 없는 백그라운드 재부팅 적용 (종속성 자동 설치)**\n"
+                        "*(봇에 심각한 오류 발생 시 해당 명령어를 서버 내에 전송하면 자가 복구합니다.)*"
+                    ),
                     inline=False
                 )
         

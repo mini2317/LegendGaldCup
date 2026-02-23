@@ -19,7 +19,7 @@ class SuggestTopicTitleModal(discord.ui.Modal, title='새로운 갈드컵 주제
         self.master_cog = master_cog
 
     topic = discord.ui.TextInput(
-        label='갈드컵 주제 (질문)',
+        label='갈드컵 주제 (질문 / 최대 100자)',
         style=discord.TextStyle.short,
         placeholder='예: 평생 탕수육 소스는?',
         required=True,
@@ -39,18 +39,18 @@ class AddOptionModal(discord.ui.Modal, title='선택지 추가하기'):
         self.view = view
 
     opt_name = discord.ui.TextInput(
-        label='선택지 이름 (짧게)',
+        label='선택지 이름 (최대 50자)',
         style=discord.TextStyle.short,
         placeholder='예: 부먹',
         required=True,
         max_length=50
     )
     opt_desc = discord.ui.TextInput(
-        label='설명 (선택사항)',
-        style=discord.TextStyle.short,
+        label='설명 (선택사항 / 최대 250자)',
+        style=discord.TextStyle.long,
         placeholder='예: 소스를 부어 축축하게 먹는다',
         required=False,
-        max_length=100
+        max_length=250
     )
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -83,21 +83,38 @@ class RemoveOptionModal(discord.ui.Modal, title='선택지 지우기'):
         except ValueError:
             await interaction.response.send_message("❌ 숫자만 입력해주세요.", ephemeral=True)
 
-class AddImageModal(discord.ui.Modal, title='이미지 첨부 (URL)'):
+class AddLinkModal(discord.ui.Modal, title='콘텐츠 링크 첨부 (URL)'):
     def __init__(self, view: 'SuggestionBuilderView'):
         super().__init__()
         self.view = view
 
-    img_url = discord.ui.TextInput(
-        label='이미지 URL',
+    link_url = discord.ui.TextInput(
+        label='이미지 또는 참고 웹페이지 링크',
         style=discord.TextStyle.short,
-        placeholder='http://...',
+        placeholder='http://... (이미지는 본문, 그 외는 텍스트 링크)',
         required=False,
         max_length=4000
     )
 
     async def on_submit(self, interaction: discord.Interaction):
-        self.view.image_url = self.img_url.value.strip() if self.img_url.value.strip() else None
+        self.view.image_url = self.link_url.value.strip() if self.link_url.value.strip() else None
+        await interaction.response.edit_message(embed=self.view.get_embed(), view=self.view)
+
+class EditTopicTitleModal(discord.ui.Modal, title='주제 제목 수정'):
+    def __init__(self, view: 'SuggestionBuilderView'):
+        super().__init__()
+        self.view = view
+
+    topic_title = discord.ui.TextInput(
+        label='새로운 주제 (질문 / 최대 100자)',
+        style=discord.TextStyle.short,
+        placeholder='수정할 주제를 입력하세요',
+        required=True,
+        max_length=100
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        self.view.topic = self.topic_title.value.strip()
         await interaction.response.edit_message(embed=self.view.get_embed(), view=self.view)
 
 class SuggestionBuilderView(discord.ui.View):
@@ -133,8 +150,15 @@ class SuggestionBuilderView(discord.ui.View):
         embed.add_field(name="📝 단답형 허용", value="[O] 허용" if self.allow_short else "[X] 불가", inline=True)
         
         if self.image_url:
-            embed.set_thumbnail(url=self.image_url)
-            embed.add_field(name="🖼️ 첨부 이미지 URL", value="설정됨 (우측 썸네일 참조)", inline=False)
+            import urllib.parse
+            parsed = urllib.parse.urlparse(self.image_url)
+            is_image = parsed.path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp')) or 'pollinations.ai' in self.image_url
+            
+            if is_image:
+                embed.set_thumbnail(url=self.image_url)
+                embed.add_field(name="🖼️ 첨부 이미지", value="설정됨 (우측 썸네일 참조)", inline=False)
+            else:
+                embed.add_field(name="🔗 참고 링크", value=self.image_url, inline=False)
             
         return embed
 
@@ -149,11 +173,17 @@ class SuggestionBuilderView(discord.ui.View):
             return
         await interaction.response.send_modal(RemoveOptionModal(self))
 
-    @discord.ui.button(label="이미지 첨부", style=discord.ButtonStyle.secondary, emoji="🖼️", row=0)
-    async def img_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = AddImageModal(self)
+    @discord.ui.button(label="콘텐츠 첨부", style=discord.ButtonStyle.secondary, emoji="�", row=0)
+    async def link_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = AddLinkModal(self)
         if self.image_url:
-            modal.img_url.default = self.image_url
+            modal.link_url.default = self.image_url
+        await interaction.response.send_modal(modal)
+        
+    @discord.ui.button(label="제목 수정", style=discord.ButtonStyle.secondary, emoji="✏️", row=0)
+    async def edit_topic_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = EditTopicTitleModal(self)
+        modal.topic_title.default = self.topic
         await interaction.response.send_modal(modal)
 
     @discord.ui.button(label="중복 투표", style=discord.ButtonStyle.primary, emoji="🔄", row=1)

@@ -267,6 +267,13 @@ class TopicPaginationView(discord.ui.View):
             self.delete_btn.disabled = True
             self.ai_pick_btn.disabled = True
             self.ai_gen_btn.disabled = True
+        else:
+            self.queue_add_btn.disabled = False
+            self.force_pick_btn.disabled = False
+            self.edit_btn.disabled = False
+            self.delete_btn.disabled = False
+            self.ai_pick_btn.disabled = False
+            self.ai_gen_btn.disabled = False
 
     def get_current_embed(self) -> discord.Embed:
         if not self.topics:
@@ -291,7 +298,14 @@ class TopicPaginationView(discord.ui.View):
         embed.add_field(name="단답허용", value="O" if topic['allow_short_answer'] else "X", inline=True)
         
         if topic.get('image_url'):
-            embed.set_thumbnail(url=topic.get('image_url'))
+            import urllib.parse
+            parsed = urllib.parse.urlparse(topic['image_url'])
+            is_image = parsed.path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp')) or 'pollinations.ai' in topic['image_url']
+            
+            if is_image:
+                embed.set_thumbnail(url=topic['image_url'])
+            else:
+                embed.add_field(name="🔗 참고 링크", value=topic['image_url'], inline=False)
             
         embed.add_field(name="제안자", value=f"<@{topic['suggested_by']}>", inline=False)
         return embed
@@ -474,6 +488,10 @@ class QueuePaginationView(discord.ui.View):
             self.force_pick_btn.disabled = True
             self.edit_btn.disabled = True
             self.delete_btn.disabled = True
+        else:
+            self.force_pick_btn.disabled = False
+            self.edit_btn.disabled = False
+            self.delete_btn.disabled = False
 
     def get_current_embed(self) -> discord.Embed:
         if not self.topics:
@@ -498,7 +516,14 @@ class QueuePaginationView(discord.ui.View):
         embed.add_field(name="단답허용", value="O" if topic['allow_short_answer'] else "X", inline=True)
         
         if topic.get('image_url'):
-            embed.set_thumbnail(url=topic.get('image_url'))
+            import urllib.parse
+            parsed = urllib.parse.urlparse(topic['image_url'])
+            is_image = parsed.path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp')) or 'pollinations.ai' in topic['image_url']
+            
+            if is_image:
+                embed.set_thumbnail(url=topic['image_url'])
+            else:
+                embed.add_field(name="🔗 참고 링크", value=topic['image_url'], inline=False)
             
         embed.add_field(name="제안자", value=f"<@{topic['suggested_by']}>", inline=False)
         return embed
@@ -682,18 +707,17 @@ class BotAdmin(commands.Cog):
         model_name = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         
         embed = discord.Embed(
-            title="📖 레전드 갈드컵 봇 관리자 가이드",
-            description="이 봇은 3일마다 새로운 딜레마(주제)를 자동 송출하며, 유저의 익명 투표를 집계합니다.\n봇 관리자는 아래의 흐름을 통해 주제 생태계를 관리할 수 있습니다.",
+            title="📖 레전드 갈드컵 봇 관리 요약",
+            description="3일마다 새로운 딜레마(주제)를 자동 송출하며, 유저의 익명 투표를 집계함.\n관리 흐름은 아래 3단계 명일관리가 핵심임.",
             color=discord.Color.teal()
         )
         
         embed.add_field(
             name="1. 📥 아이디어 건의 목록 (`!주제관리`)",
             value=(
-                "일반 유저들이 `/주제제시` 로 건의한 아이디어들이 임시 보관되는 곳입니다.\n"
-                "• 여기서 관리자는 아이디어를 심사하고 텍스트를 **수정**할 수 있습니다.\n"
-                "• 마음에 드는 주제는 **[대기열(Queue) 끝에 장전하기]** 버튼을 눌러 실제 방송 대기열로 넘깁니다.\n"
-                "• **[AI로 가공 후 추가]** 를 누르면 AI가 제목/설명을 다듬어 대기열로 넘깁니다."
+                "- 일반 유저들이 `/주제제시` 로 건의한 아이디어 임시 보관소\n"
+                "- 내용을 심사/수정 후 마음에 들면 **[대기열 추가]** 클릭 시 방송 큐로 넘어감\n"
+                "- **[AI로 가공 후 추가]** 시 AI가 찰지게 다듬어서 큐로 넘겨줌"
             ),
             inline=False
         )
@@ -701,10 +725,10 @@ class BotAdmin(commands.Cog):
         embed.add_field(
             name="2. ⏱️ 실제 방송 대기열 (`!대기열관리`)",
             value=(
-                "다음 차례에 전체 서버로 송출될 주제들이 줄 서 있는 **찐 대기열(Queue)**입니다.\n"
-                "• 3일 타이머가 끝나면 이 대기열의 가장 첫 번째 주제가 다음 갈드컵으로 시작됩니다.\n"
-                "• 이곳의 순서를 모니터링하고 맘에 안 들면 수정/삭제할 수 있습니다.\n"
-                "• **[즉시 강제시작]** 을 누르면 타이머를 무시하고 이 주제를 즉시 런칭시킵니다."
+                "- 다음 차례에 전체 서버로 런칭될 '확정된' **찐 대기열(Queue)**임\n"
+                "- 3일 타이머 종료 시 (또는 큐가 비어서 즉각 발동 시) 여기서 가장 1번 타자가 송출됨\n"
+                "- 큐 순서를 모니터링/수정/삭제 가능\n"
+                "- **[즉시 강제시작]** 누르면 타이머 무시하고 해당 주제를 즉시 런칭시킴"
             ),
             inline=False
         )
@@ -712,9 +736,9 @@ class BotAdmin(commands.Cog):
         embed.add_field(
             name="3. 🤖 AI 자동 생산 (`!AI주제충전 <개수>`)",
             value=(
-                "봇 관리자가 대기열을 채워두기 귀찮거나 유저 건의가 말랐을 때 쓰는 치트키입니다.\n"
-                "• AI가 즉석에서 흥미로운 갈드컵 주제와 이미지 프롬프트를 창작해 대기열에 바로 밀어넣습니다.\n"
-                f"• 현재 탑재된 인공지능 모델: `{model_name}`\n"
+                "- 유저 제안이 말랐을 때 쓰는 치트키 명령어\n"
+                "- AI가 즉석에서 생성한 주제와 이미지를 큐에 다이렉트로 장전해줌\n"
+                f"- 탑재 AI: `{model_name}`\n"
             ),
             inline=False
         )
@@ -722,9 +746,9 @@ class BotAdmin(commands.Cog):
         embed.add_field(
             name="⚠️ 주의사항",
             value=(
-                "• `!주제관리` 및 `!대기열관리` 인터페이스는 DM으로 전송됩니다.\n"
-                "• 두 인터페이스는 독립된 시스템을 사용하므로 **동시에 각각 창을 띄워두고 작업**할 수 있지만, 동일한 창을 두 번 띄우는 것은 방지됩니다.\n"
-                "• 대기열이 텅 비어있을 경우, 봇은 스스로 판단하여 AI 주제를 즉석 생성하거나 하드코딩된 기본 주제를 켭니다."
+                "• 관리 UI는 DM으로 전송됨\n"
+                "• `!주제관리` 및 `!대기열관리` 독립 조작 가능하나 중복 창 띄우기는 제한됨\n"
+                "• 큐가 아예 비어있으면 봇이 알아서 AI 주제를 쏘거나 기본 주제를 발동시킴"
             ),
             inline=False
         )

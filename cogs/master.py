@@ -83,6 +83,12 @@ class Master(commands.Cog):
                 text = text[:-3]
                 
             data = json.loads(text.strip())
+            
+            if 'image_prompt' in data:
+                import urllib.parse
+                prompt_encoded = urllib.parse.quote(data['image_prompt'])
+                data['image_url'] = f"https://image.pollinations.ai/prompt/{prompt_encoded}?width=800&height=400&nologo=true"
+                
             return data
         except Exception as e:
             logger.error(f"Error generating topic with Gemini: {e}")
@@ -391,7 +397,14 @@ class Master(commands.Cog):
                 embed.add_field(name="선택지", value=desc_text.strip(), inline=False)
                 
             if image_url:
-                embed.set_image(url=image_url)
+                import urllib.parse
+                parsed = urllib.parse.urlparse(image_url)
+                is_image = parsed.path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp')) or 'pollinations.ai' in image_url
+                
+                if is_image:
+                    embed.set_image(url=image_url)
+                else:
+                    embed.add_field(name="🔗 참고 링크", value=image_url, inline=False)
             
             try:
                 await channel.send(embed=embed)
