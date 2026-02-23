@@ -21,7 +21,23 @@ class Admin(commands.Cog):
             ephemeral=True
         )
 
-        # 등록되는 즉시 현재 진행 중인 주제를 해당 채널에 제시
+        intro_text = (
+            "🎉 **레전드 갈드컵 봇이 이 채널에 연결되었습니다!** 🎉\n"
+            "이곳에서 주기적으로 새롭고 흥미진진한 갈드컵 매치가 배달됩니다.\n\n"
+            "💡 **[봇과 함께 노는 방법]**\n"
+            "1️⃣ 채팅창에 `/투표` 를 입력해 현재 진행 중인 주제에 익명으로 투표하고 이유를 남겨주세요!\n"
+            "2️⃣ 기발한 아이디어가 떠올랐다면 `/주제제시` 로 갈드컵 주제를 직접 건의하세요.\n"
+            "3️⃣ 사람들의 익명 반응이 궁금하다면 언제든 `/현재상황` 을 쳐보세요!\n\n"
+            "*(봇 관리자에 의해 채택된 신규 주제와 투표 마감 결과가 이 채널에 자동으로 송출됩니다.)*"
+        )
+
+        # 등록되는 즉시 안내 메세지 전송
+        try:
+            await channel.send(intro_text)
+        except discord.Forbidden:
+            logger.warning(f"Failed to send intro message to {channel.id} due to permission issue.")
+            return
+
         survey = await get_active_survey()
         if survey:
             embed = discord.Embed(
@@ -34,11 +50,6 @@ class Admin(commands.Cog):
             
             try:
                 await channel.send(embed=embed)
-            except discord.Forbidden:
-                logger.warning(f"Failed to send active survey to {channel.id} due to permission issue.")
-        else:
-            try:
-                await channel.send("✅ 이 채널로 설문조사 알림이 전송됩니다!\n(현재 진행 중인 주제가 없습니다. 마스터의 새 주제를 기다려주세요.)")
             except Exception:
                 pass
 

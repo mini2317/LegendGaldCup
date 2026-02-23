@@ -38,7 +38,7 @@ class General(commands.Cog):
         embed.add_field(name="/도움말", value="현재 보고 계신 도움말을 출력합니다.", inline=False)
         embed.add_field(name="/투표", value="현재 진행 중인 주제에 투표하고 익명 의견(300자 이내)을 남깁니다. (다시 입력 시 수정됩니다)", inline=False)
         embed.add_field(name="/현재상황", value="현재 진행 중인 주제와 다른 사람들의 익명 의견을 열람합니다.", inline=False)
-        embed.add_field(name="/주제제시", value="다음 3일 간 진행할 재미있는 갈드컵 주제와 옵션들을 모집합니다. (동시에 1개만 가능. 텍스트 내 띄어쓰기는 따옴표 사용)", inline=False)
+        embed.add_field(name="/주제제시", value="다음 3일 간 진행할 재미있는 갈드컵 주제와 옵션들을 모집합니다. (제한 없이 언제든 여러 개 제출 가능)", inline=False)
         embed.add_field(name="/통계 (준비중)", value="과거 설문조사들의 전체 결과 및 통계를 조회합니다.", inline=False)
         embed.add_field(name="/공지채널설정", value="[서버 관리자 전용] 3일 주기로 설문 결과 및 새 주제가 공지될 채널을 지정합니다.", inline=False)
         embed.add_field(name="/알림설정", value="[서버 관리자 전용] 지정된 채널로 향하는 갈드컵 자동 공지를 켜고(True) 끌(False) 수 있습니다.", inline=False)
@@ -50,8 +50,9 @@ class General(commands.Cog):
         if is_bot_admin or is_master:
             embed.add_field(name="\u200b", value="**🛡️ 봇 관리자 전용 명령어 (슬래시 `/` 대신 느낌표 `!` 사용)**", inline=False)
             embed.add_field(name="!관리자목록", value="현재 봇 기능 권한을 부여받은 관리자 리스트를 열람합니다.", inline=False)
-            embed.add_field(name="!주제관리", value="DM으로 제안된 주제들을 열람하고 수동 채택, 수정, AI 채택/생성 등을 진행합니다.", inline=False)
-            embed.add_field(name="!AI주제충전 <개수>", value="[1~5] AI가 창작한 주제를 지정한 개수만큼 대기열(Queue)에 예약합니다.", inline=False)
+            embed.add_field(name="!주제관리", value="DM으로 대중이 건의한 아이디어 주제들을 열람하고, 검토를 통해 진행 `대기열(Queue)`로 승격시킵니다.", inline=False)
+            embed.add_field(name="!대기열관리", value="DM으로 실제 송출 예정인 `대기열(Queue)` 안의 주제 현황 및 순서를 관리합니다.", inline=False)
+            embed.add_field(name="!AI주제충전 <개수>", value="[1~5] AI가 창작한 주제를 지정한 개수만큼 `대기열(Queue)`에 다이렉트로 장전합니다.", inline=False)
             embed.add_field(name="!주제강제종료", value="현재 진행 중인 투표를 즉시 마감하고 다음 주제로 순서를 넘깁니다.", inline=False)
             
             if is_master:

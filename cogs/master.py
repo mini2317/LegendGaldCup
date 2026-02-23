@@ -279,24 +279,16 @@ class Master(commands.Cog):
         is_master = False
         
         if not new_topic_data:
-            # Try finding a user-suggested topic
-            for _ in range(10): # Try up to 10 randomly picked user topics
-                topic_row = await database.pop_random_suggested_topic()
-                if not topic_row:
-                    break
-                    
-                is_valid = await self.evaluate_topic(topic_row['topic'], topic_row['options'])
-                if is_valid:
-                    new_topic_data = topic_row
-                    break
+            # 1순위: 대기열(Queue)에서 가장 첫 번째 주제 꺼내기
+            new_topic_data = await database.get_next_queued_topic()
 
             if not new_topic_data:
-                # Fallback to Gemini generation
+                # 2순위: 큐가 비어있다면 AI 자동 생성(Gemini)
                 is_master = True
                 new_topic_data = await self.generate_topic()
                 
                 if not new_topic_data:
-                    # Absolute fallback if API fails
+                    # 3순위: AI API 호출마저 실패 시 하드코딩된 폴백 주제
                     new_topic_data = {
                         "topic": "평생 여름 vs 평생 겨울",
                         "options": [

@@ -83,6 +83,20 @@ async def init_db():
             )
         ''')
         
+        # 주제 대기열 (Queue) 테이블
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS topic_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                topic TEXT NOT NULL,
+                options TEXT NOT NULL,
+                allow_multiple INTEGER DEFAULT 0,
+                allow_short_answer INTEGER DEFAULT 0,
+                suggested_by INTEGER NOT NULL,
+                image_url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
         await db.commit()
         logger.info("Database initialized successfully.")
 
@@ -255,5 +269,66 @@ async def update_suggested_topic(topic_id: int, topic: str, options: list, allow
 async def delete_suggested_topic(topic_id: int):
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute('DELETE FROM suggested_topics WHERE id = ?', (topic_id,))
+        await db.commit()
+
+# --- Topic Queue Functions ---
+
+async def add_to_queue(topic: dict):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('''
+            INSERT INTO topic_queue (topic, options, allow_multiple, allow_short_answer, suggested_by, image_url)
+            VALUES (?, ?, ?, ?, ?, ?)
+        ''', (
+            topic.get('topic'), 
+            json.dumps(topic.get('options', []), ensure_ascii=False) if isinstance(topic.get('options'), list) else topic.get('options', '[]'), 
+            int(topic.get('allow_multiple', 0)), 
+            int(topic.get('allow_short_answer', 0)), 
+            topic.get('suggested_by', 0), 
+            topic.get('image_url')
+        ))
+        await db.commit()
+
+async def get_next_queued_topic():
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM topic_queue ORDER BY id ASC LIMIT 1') as cursor:
+            row = await cursor.fetchone()
+            if row:
+                topic_data = dict(row)
+                topic_data['options'] = json.loads(topic_data['options'])
+                topic_data['allow_multiple'] = bool(topic_data['allow_multiple'])
+                topic_data['allow_short_answer'] = bool(topic_data['allow_short_answer'])
+                # 가져오면 큐에서 삭제
+                await db.execute('DELETE FROM topic_queue WHERE id = ?', (row['id'],))
+                await db.commit()
+                return topic_data
+        return None
+
+async def get_all_queued_topics():
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM topic_queue ORDER BY id ASC') as cursor:
+            rows = await cursor.fetchall()
+            topics = []
+            for row in rows:
+                t = dict(row)
+                t['options'] = json.loads(t['options'])
+                t['allow_multiple'] = bool(t['allow_multiple'])
+                t['allow_short_answer'] = bool(t['allow_short_answer'])
+                topics.append(t)
+            return topics
+
+async def update_queued_topic(topic_id: int, topic: str, options: list, allow_multiple: bool, allow_short_answer: bool, image_url: str = None):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('''
+            UPDATE topic_queue 
+            SET topic=?, options=?, allow_multiple=?, allow_short_answer=?, image_url=?
+            WHERE id=?
+        ''', (topic, json.dumps(options, ensure_ascii=False), int(allow_multiple), int(allow_short_answer), image_url, topic_id))
+        await db.commit()
+
+async def delete_queued_topic(topic_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('DELETE FROM topic_queue WHERE id = ?', (topic_id,))
         await db.commit()
 

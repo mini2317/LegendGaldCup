@@ -47,7 +47,7 @@ class SuggestTopicModal(discord.ui.Modal, title='새로운 갈드컵 주제 제�
         style=discord.TextStyle.short,
         placeholder='http://... (비워둬도 됨)',
         required=False,
-        max_length=200
+        max_length=4000
     )
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -209,18 +209,12 @@ class VoteSelectView(discord.ui.View):
             joined_selections = ", ".join(selected_values)
             await interaction.response.send_modal(VoteOpinionModal(self.survey_id, joined_selections))
         
-        # Send DM in background
         if existing_vote:
-            async def send_warning_dm():
-                try:
-                    await interaction.user.send(
-                        f"⚠️ **이미 현 갈드컵에 투표하셨습니다!**\n"
-                        f"방금 띄워드린 팝업창을 통해 새로운 의견을 제출하시면 기존 투표 내역이 덮어씌워집니다."
-                    )
-                except discord.Forbidden:
-                    logger.debug(f"Could not send DM to {interaction.user.name} regarding existing vote.")
-            
-            asyncio.create_task(send_warning_dm())
+            # send_modal 이후에는 followup으로 메세지를 전송합니다 (ephemeral 속성)
+            await interaction.followup.send(
+                "⚠️ **이미 현 갈드컵에 투표하셨습니다!** 방금 띄워드린 팝업창을 통해 새로운 의견을 제출하시면 기존 투표 내역이 수정 반영됩니다.",
+                ephemeral=True
+            )
 
 
 class Survey(commands.Cog):
@@ -229,11 +223,6 @@ class Survey(commands.Cog):
 
     @app_commands.command(name="주제제시", description="재미있는 갈드컵 다음 주제를 제시합니다.")
     async def suggest_topic(self, interaction: discord.Interaction):
-        has_pending = await database.has_pending_suggestion(interaction.user.id)
-        if has_pending:
-            await interaction.response.send_message("❌ 이미 제출하여 대기 중인 갈드컵 주제가 있습니다. 한 번에 하나의 주제만 제안할 수 있습니다.\n(제출하신 주제가 봇 관리자에 의해 채택되거나 기각된 이후에 새 주제를 제안할 수 있습니다.)", ephemeral=True)
-            return
-            
         await interaction.response.send_modal(SuggestTopicModal())
 
     @app_commands.command(name="투표", description="현재 진행 중인 갈드컵에 익명으로 투표와 의견을 남깁니다.")
