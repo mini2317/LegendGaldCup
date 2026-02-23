@@ -388,7 +388,6 @@ class Master(commands.Cog):
                     await guild.owner.send(f"⚠️ **[레전드 갈드컵]** 서버({guild.name})의 공지 채널이 삭제되었거나 봇이 접근할 수 없어 갈드컵 알림 송출이 자동 비활성화되었습니다. 서버 설정에서 다시 `/공지채널설정`을 진행해주세요.")
             except Exception:
                 pass
-            continue
         except Exception:
             continue
 
