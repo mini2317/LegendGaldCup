@@ -332,3 +332,44 @@ async def delete_queued_topic(topic_id: int):
         await db.execute('DELETE FROM topic_queue WHERE id = ?', (topic_id,))
         await db.commit()
 
+async def swap_queue_items(id1: int, id2: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM topic_queue WHERE id IN (?, ?)', (id1, id2)) as cursor:
+            rows = await cursor.fetchall()
+            
+        if len(rows) == 2:
+            r1, r2 = rows[0], rows[1]
+            if r1['id'] == id2:
+                r1, r2 = r2, r1
+                
+            await db.execute('''
+                UPDATE topic_queue 
+                SET topic=?, options=?, allow_multiple=?, allow_short_answer=?, suggested_by=?, image_url=?, created_at=?
+                WHERE id=?
+            ''', (r2['topic'], r2['options'], r2['allow_multiple'], r2['allow_short_answer'], r2['suggested_by'], r2['image_url'], r2['created_at'], id1))
+            
+            await db.execute('''
+                UPDATE topic_queue 
+                SET topic=?, options=?, allow_multiple=?, allow_short_answer=?, suggested_by=?, image_url=?, created_at=?
+                WHERE id=?
+            ''', (r1['topic'], r1['options'], r1['allow_multiple'], r1['allow_short_answer'], r1['suggested_by'], r1['image_url'], r1['created_at'], id2))
+            
+            await db.commit()
+
+async def return_queue_to_suggested(topic_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM topic_queue WHERE id = ?', (topic_id,)) as cursor:
+            row = await cursor.fetchone()
+            
+        if row:
+            await db.execute('''
+                INSERT INTO suggested_topics (topic, options, allow_multiple, allow_short_answer, suggested_by, image_url, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (row['topic'], row['options'], row['allow_multiple'], row['allow_short_answer'], row['suggested_by'], row['image_url'], row['created_at']))
+            
+            await db.execute('DELETE FROM topic_queue WHERE id = ?', (topic_id,))
+            await db.commit()
+
+

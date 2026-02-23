@@ -488,10 +488,16 @@ class QueuePaginationView(discord.ui.View):
             self.force_pick_btn.disabled = True
             self.edit_btn.disabled = True
             self.delete_btn.disabled = True
+            self.move_up_btn.disabled = True
+            self.move_down_btn.disabled = True
+            self.return_btn.disabled = True
         else:
             self.force_pick_btn.disabled = False
             self.edit_btn.disabled = False
             self.delete_btn.disabled = False
+            self.return_btn.disabled = False
+            self.move_up_btn.disabled = (self.current_page == 0)
+            self.move_down_btn.disabled = (self.current_page == self.max_pages - 1)
 
     def get_current_embed(self) -> discord.Embed:
         if not self.topics:
@@ -534,17 +540,70 @@ class QueuePaginationView(discord.ui.View):
         self.update_buttons()
         await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
 
-    @discord.ui.button(label="다음", style=discord.ButtonStyle.secondary, emoji="➡️")
+    @discord.ui.button(label="다음", style=discord.ButtonStyle.secondary, emoji="➡️", row=0)
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         self.current_page += 1
         self.update_buttons()
         await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
         
+    @discord.ui.button(label="순서 위로", style=discord.ButtonStyle.secondary, emoji="🔼", row=0)
+    async def move_up_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page > 0:
+            import database
+            id1 = self.topics[self.current_page]['id']
+            id2 = self.topics[self.current_page - 1]['id']
+            await database.swap_queue_items(id1, id2)
+            
+            # ID swap in UI list directly to mirror DB change
+            temp = self.topics[self.current_page]['id']
+            self.topics[self.current_page]['id'] = self.topics[self.current_page - 1]['id']
+            self.topics[self.current_page - 1]['id'] = temp
+            
+            self.topics[self.current_page], self.topics[self.current_page - 1] = self.topics[self.current_page - 1], self.topics[self.current_page]
+            self.current_page -= 1
+            self.update_buttons()
+            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+
+    @discord.ui.button(label="순서 아래로", style=discord.ButtonStyle.secondary, emoji="🔽", row=0)
+    async def move_down_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if self.current_page < self.max_pages - 1:
+            import database
+            id1 = self.topics[self.current_page]['id']
+            id2 = self.topics[self.current_page + 1]['id']
+            await database.swap_queue_items(id1, id2)
+            
+            # ID swap in UI list directly to mirror DB change
+            temp = self.topics[self.current_page]['id']
+            self.topics[self.current_page]['id'] = self.topics[self.current_page + 1]['id']
+            self.topics[self.current_page + 1]['id'] = temp
+            
+            self.topics[self.current_page], self.topics[self.current_page + 1] = self.topics[self.current_page + 1], self.topics[self.current_page]
+            self.current_page += 1
+            self.update_buttons()
+            await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
+        
     @discord.ui.button(label="이 주제 수정", style=discord.ButtonStyle.primary, emoji="✏️", row=1)
     async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         topic = self.topics[self.current_page]
-        # is_queue 인자 추가
         await interaction.response.send_modal(EditTopicModal(topic, self, is_queue=True))
+
+    @discord.ui.button(label="주제제시로 반환", style=discord.ButtonStyle.primary, emoji="🔙", row=1)
+    async def return_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        topic = self.topics[self.current_page]
+        import database
+        await database.return_queue_to_suggested(topic['id'])
+        
+        self.topics.pop(self.current_page)
+        self.max_pages = len(self.topics)
+        if self.current_page >= self.max_pages and self.current_page > 0:
+            self.current_page -= 1
+            
+        self.update_buttons()
+        await interaction.response.edit_message(
+            content=f"✅ **[{topic['topic']}]** 대기열 주제를 다시 유저 건의 목록(`!주제관리`)으로 되돌렸습니다.",
+            embed=self.get_current_embed(), 
+            view=self
+        )
 
     @discord.ui.button(label="이 대기열 제거", style=discord.ButtonStyle.danger, emoji="🗑️", row=1)
     async def delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

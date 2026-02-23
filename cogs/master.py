@@ -218,7 +218,11 @@ class Master(commands.Cog):
             votes = await database.get_votes_for_survey(survey_id)
             
             total_votes_users = len(votes)
-            options_counts = {opt: 0 for opt in active_survey['options']}
+            options_counts = {}
+            for opt in active_survey['options']:
+                opt_name = opt.get('name', opt) if isinstance(opt, dict) else opt
+                options_counts[opt_name] = 0
+                
             for v in votes:
                 chosen = [c.strip() for c in v['selected_option'].split(',')]
                 for c in chosen:
