@@ -111,7 +111,7 @@ class AIGeneratedTopicView(discord.ui.View):
         self.generated_data = generated_data
         self.invoker = invoker
 
-    @discord.ui.button(label="승인 및 적발", style=discord.ButtonStyle.success, emoji="✅")
+    @discord.ui.button(label="승인", style=discord.ButtonStyle.success, emoji="✅")
     async def approve_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.master_cog.force_new_topic(self.generated_data, interaction.user)
         for item in self.children:
@@ -236,6 +236,8 @@ class TopicPaginationView(discord.ui.View):
         if self.max_pages == 0:
             self.prev_btn.disabled = True
             self.next_btn.disabled = True
+            self.force_pick_btn.disabled = True
+            self.edit_btn.disabled = True
             self.delete_btn.disabled = True
             self.ai_pick_btn.disabled = True
 
@@ -317,7 +319,7 @@ class TopicPaginationView(discord.ui.View):
         self.update_buttons()
         await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
 
-    @discord.ui.button(label="현재 주제를 AI로 평가 후 채택", style=discord.ButtonStyle.primary, emoji="🤖")
+    @discord.ui.button(label="AI로 가공 후 채택", style=discord.ButtonStyle.primary, emoji="🤖")
     async def ai_pick_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(thinking=True, ephemeral=True)
         topic = self.topics[self.current_page]
@@ -444,6 +446,52 @@ class BotAdmin(commands.Cog):
                 success_count += 1
                 
         await ctx.send(f"✅ 대기열 큐(Queue)에 **{success_count}개**의 AI 주제 충전이 완료되었습니다! (`!주제관리` 인터페이스로 확인 및 수정 가능)")
+
+    @commands.command(name="업데이트", description="[총관리자 전용] Github 저장소에서 최신 코드를 즉시 불러오고 봇을 리로드합니다.")
+    async def update_bot(self, ctx: commands.Context):
+        if str(ctx.author.id) != str(MASTER_ADMIN_ID):
+            await ctx.send("❌ 이 명령어는 `.env`에 설정된 총관리자 전용입니다.")
+            return
+            
+        await ctx.send("⏳ Github에서 최신 코드를 가져오는 중입니다...")
+        
+        import subprocess
+        try:
+            # git 버전을 체크하고 pull 받음
+            result = await asyncio.to_thread(
+                subprocess.run,
+                ['git', 'pull'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            output = result.stdout.strip()
+            if "Already up to date" in output or "이미 업데이트 상태입니다" in output:
+                await ctx.send("✅ 이미 최신 버전입니다. 업데이트할 내용이 없습니다.")
+                return
+                
+            await ctx.send(f"📦 업데이트 내역이 감지되었습니다:\n```\n{output[:1800]}\n```\n🔄 최신 코드를 즉시 적용하기 위해 모듈들(Cogs) 무중단 패치를 시작합니다...")
+            
+            # Cogs 폴더의 모든 확장을 리로드
+            import os
+            cogs_dir = "cogs"
+            reloaded = []
+            for filename in os.listdir(cogs_dir):
+                if filename.endswith('.py') and not filename.startswith('__'):
+                    cog_name = f"cogs.{filename[:-3]}"
+                    try:
+                        await self.bot.reload_extension(cog_name)
+                        reloaded.append(filename)
+                    except Exception as e:
+                        await ctx.send(f"❌ `{cog_name}` 리로드 실패: {e}")
+            
+            await ctx.send(f"🌌 **업데이트 완료!** 무중단 패치가 성공적으로 적용된 모듈: {', '.join(reloaded)}")
+            
+        except subprocess.CalledProcessError as e:
+            await ctx.send(f"🚨 Github에서 코드를 가져오는 중 오류가 발생했습니다.\n```\n{e.stderr[:1800]}\n```")
+        except Exception as e:
+            await ctx.send(f"🚨 기타 오류 발생: {e}")
 
     @commands.command(name="주제관리", description="[관리자 전용] DM으로 제안된 주제들을 열람하고 AI 생성이나 수동 채택을 진행합니다.")
     async def manage_topics(self, ctx: commands.Context):

@@ -13,31 +13,32 @@
 
 ## 설치 및 실행 방법 (Installation & Usage)
 
-1. Python 3.10 이상이 설치되어 있는지 확인합니다.
-2. 봇 레포지토리를 클론하거나 다운로드 받아 터미널에 엽니다.
-3. 가상환경을 생성 및 활성화하고 필수 라이브러리를 설치합니다.
+1. 봇 레포지토리를 클론하거나 다운로드 받아 터미널에 엽니다.
+2. 리눅스(Ubuntu/Debian 등) 환경의 경우, 제공되는 **자동 셋업 스크립트**를 실행하면 Python 설치부터 봇 구동까지 원클릭으로 진행됩니다.
+   ```bash
+   chmod +x start_bot.sh
+   ./start_bot.sh
+   ```
+   *(이 스크립트는 시스템에 Python3이 없다면 자동으로 설치하고, 파이썬 가상환경(`venv`) 구성, `requirements.txt` 설치, 그리고 `nohup`을 통한 24시간 백그라운드 구동까지 모두 책임집니다.)*
+
+3. 수동으로 설치를 원하거나 Windows 환경인 경우 다음 명령어를 차례로 실행하세요:
    ```bash
    python -m venv venv
    source venv/bin/activate  # Windows의 경우: venv\Scripts\activate
    pip install -r requirements.txt
+   python main.py
    ```
-   *(필수 라이브러리 목록: `discord.py`, `google-generativeai`, `python-dotenv`, `aiosqlite`, `matplotlib`, `squarify`)*
 
-4. `.env.example` 파일을 복사하여 `.env` 파일로 이름을 변경합니다.
-   ```
+4. 봇을 처음 구동하기 전에 반드시 `.env.example` 파일을 복사하여 `.env` 파일로 이름을 변경하고 아래 값들을 채워주세요.
+   ```env
    DISCORD_TOKEN=당신의_디스코드_봇_토큰
    GEMINI_API_KEY=당신의_제미나이_API_키
    MASTER_ADMIN_ID=총관리자의_디스코드_유저아이디(숫자형)
    GEMINI_MODEL=gemini-2.5-flash
    ```
 
-5. 봇을 실행합니다.
-   ```bash
-   python main.py
-   ```
-
 ## 주요 명령어 (Commands)
-* **`/설정` (관리자)**: 현재 채널을 갈드컵 투표 및 공지 채널로 등록/해제합니다. 등록 시 과거 진행 중이던 투표 패널이 불러와집니다.
+* **`/설정` (관리자)**: 현재 채널을 갈드컵 투표 및 공지 채널로 등록/해제합니다. 등록 시 과거 진행! 중이던 투표 패널이 불러와집니다.
 * **`/투표`**: 진행 중인 주제에 짧은 익명 의견과 함께 투표합니다.
 * **`/주제제시`**: 봇이 골라줬으면 하는 재밌는 주제를 제안합니다. 이미지와 부를 설명까지 쓸 수 있습니다.
 * **`/현재상황`**: 지금까지 몇 명이 각 항목에 투표했는지 통계와 최신 익명 의견들을 봅니다.

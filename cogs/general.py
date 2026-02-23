@@ -49,13 +49,16 @@ class General(commands.Cog):
 
         if is_bot_admin or is_master:
             embed.add_field(name="\u200b", value="**🛡️ 봇 관리자 전용 명령어 (슬래시 `/` 대신 느낌표 `!` 사용)**", inline=False)
-            embed.add_field(name="!주제관리", value="DM으로 제안된 주제들을 열람하고 수동 채택, AI 채택/생성 등을 진행합니다.", inline=False)
+            embed.add_field(name="!관리자목록", value="현재 봇 기능 권한을 부여받은 관리자 리스트를 열람합니다.", inline=False)
+            embed.add_field(name="!주제관리", value="DM으로 제안된 주제들을 열람하고 수동 채택, 수정, AI 채택/생성 등을 진행합니다.", inline=False)
+            embed.add_field(name="!AI주제충전 <개수>", value="[1~5] AI가 창작한 주제를 지정한 개수만큼 대기열(Queue)에 예약합니다.", inline=False)
             embed.add_field(name="!주제강제종료", value="현재 진행 중인 투표를 즉시 마감하고 다음 주제로 순서를 넘깁니다.", inline=False)
             
             if is_master:
                 embed.add_field(name="\u200b", value="**👑 최고 관리자 전용 명령어**", inline=False)
                 embed.add_field(name="!부관리자추가 [@유저]", value="봇을 관리할 부관리자를 새로 임명합니다.", inline=False)
                 embed.add_field(name="!부관리자제거 [@유저]", value="기존 부관리자의 권한을 박탈합니다.", inline=False)
+                embed.add_field(name="!업데이트", value="Github에서 최신 코드를 pull 받고 봇을 무중단 리로드합니다.", inline=False)
 
         await interaction.response.send_message(embed=embed)
 
