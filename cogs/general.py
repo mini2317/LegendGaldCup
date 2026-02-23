@@ -52,16 +52,22 @@ class General(commands.Cog):
             embed.add_field(name="!관리자설명서", value="레전드 갈드컵 봇의 관리 시스템 및 흐름(Queue 시스템 등)을 안내합니다.", inline=False)
             embed.add_field(name="!관리자목록", value="현재 봇 기능 권한을 부여받은 관리자 리스트를 열람합니다.", inline=False)
             embed.add_field(name="!주제관리", value="DM으로 대중이 건의한 아이디어 주제들을 열람하고, 검토를 통해 진행 `대기열(Queue)`로 승격시킵니다.", inline=False)
-            embed.add_field(name="!대기열관리", value="DM으로 실제 송출 예정인 `대기열(Queue)` 안의 주제 현황 및 순서를 관리합니다.", inline=False)
-            embed.add_field(name="!AI주제충전 <개수>", value="[1~5] AI가 창작한 주제를 지정한 개수만큼 `대기열(Queue)`에 다이렉트로 장전합니다.", inline=False)
-            embed.add_field(name="!주제강제종료", value="현재 진행 중인 투표를 즉시 마감하고 다음 주제로 순서를 넘깁니다.", inline=False)
+            
+            # Consolidated admin commands
+            embed.add_field(
+                name="🛠️ 관리자 명령어 (총관리자/부관리자 전용)",
+                value="`!주제관리`: 유저 제안 확인, 승인(대기열 장전), AI 가공\n`!대기열관리`: 다음 송출 큐(Queue) 확인 및 즉시 강제 송출\n`!AI주제충전 <개수>`: AI 자체 생성 주제를 대기열에 예약\n`!주제강제종료`: 현재 진행 중인 투표를 마감하고 다음 주제로 스킵\n`!부관리자추가 / !부관리자제거`: 봇 제어 권한 주기",
+                inline=False
+            )
             
             if is_master:
                 embed.add_field(name="\u200b", value="**👑 최고 관리자 전용 명령어**", inline=False)
-                embed.add_field(name="!부관리자추가 [@유저]", value="봇을 관리할 부관리자를 새로 임명합니다.", inline=False)
-                embed.add_field(name="!부관리자제거 [@유저]", value="기존 부관리자의 권한을 박탈합니다.", inline=False)
-                embed.add_field(name="!업데이트", value="Github에서 최신 코드를 pull 받고 봇을 무중단 리로드합니다.", inline=False)
-
+                embed.add_field(
+                    name="🤖 최고 관리자 전용",
+                    value="`!업데이트`: Github 저장소에서 최신 코드를 불러오고 봇을 백그라운드 리부팅 (종속성 재설치 지원)\n만약 봇에 치명적 문제가 있거나 먹통이면 이 명령어를 서버에 쳐서 살릴 수 있습니다.",
+                    inline=False
+                )
+        
         await interaction.response.send_message(embed=embed)
 
 async def setup(bot: commands.Bot):

@@ -261,10 +261,12 @@ class TopicPaginationView(discord.ui.View):
         if self.max_pages == 0:
             self.prev_btn.disabled = True
             self.next_btn.disabled = True
+            self.queue_add_btn.disabled = True
             self.force_pick_btn.disabled = True
             self.edit_btn.disabled = True
             self.delete_btn.disabled = True
             self.ai_pick_btn.disabled = True
+            self.ai_gen_btn.disabled = True
 
     def get_current_embed(self) -> discord.Embed:
         if not self.topics:
@@ -432,10 +434,6 @@ class TopicPaginationView(discord.ui.View):
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         else:
             await interaction.followup.send("❌ AI 주제 생성에 실패했습니다.", ephemeral=True)
-
-    @discord.ui.button(label="직접 작성하여 채택", style=discord.ButtonStyle.success, emoji="✍️")
-    async def manual_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(DirectTopicModal(self.master_cog))
 
     @discord.ui.button(label="🔄 새로고침", style=discord.ButtonStyle.secondary, row=2)
     async def refresh_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
