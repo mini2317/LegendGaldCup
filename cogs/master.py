@@ -172,12 +172,19 @@ class Master(commands.Cog):
         labels = [item[0] for item in sorted_items]
         sizes = [item[1] for item in sorted_items]
         
-        fig, ax = plt.subplots(figsize=(7, 7))
+        fig, ax = plt.subplots(figsize=(8, 7))
         
-        # Pie/Donut Chart
+        # Strip emojis for font rendering safety
+        import re
+        def remove_emoji(text):
+            return re.sub(r'[^\w\s,\.\?\!\(\)\-\:\u3131-\u3163\uac00-\ud7a3]', '', text).strip()
+            
+        safe_labels = [remove_emoji(l) for l in labels]
+        
+        # Pie/Donut Chart without inner labels
         colors = plt.cm.Set3.colors[:len(labels)]
         wedges, texts, autotexts = ax.pie(
-            sizes, labels=labels, autopct='%1.1f%%',
+            sizes, labels=None, autopct='%1.1f%%',
             startangle=140, colors=colors,
             wedgeprops=dict(width=0.4, edgecolor='w', linewidth=2),
             textprops=dict(fontproperties=font_prop, fontsize=12)
@@ -188,6 +195,13 @@ class Master(commands.Cog):
             autotext.set_fontsize(14)
             autotext.set_fontweight('bold')
                     
+        # Add legend outside the pie to prevent overlapping
+        ax.legend(wedges, safe_labels,
+                  title="옵션 항목",
+                  loc="center left",
+                  bbox_to_anchor=(1, 0, 0.5, 1),
+                  prop=font_prop)
+                  
         ax.set_title('📊 갈드컵 득표 비율', fontproperties=font_prop, fontsize=18, pad=20)
         
         plt.tight_layout()
@@ -271,6 +285,21 @@ class Master(commands.Cog):
             clustered_data = []
             if all_opinions:
                 clustered_data = await self.cluster_opinions(active_survey['topic'], all_opinions)
+
+            # Save results text to JSON archive for lookup feature
+            import os
+            import json
+            os.makedirs(os.path.join("data", "charts"), exist_ok=True)
+            result_data = {
+                "survey_id": survey_id,
+                "topic": active_survey['topic'],
+                "total_votes": total_votes_users,
+                "options_counts": options_counts,
+                "stats_str": stats_str,
+                "clustered_data": clustered_data
+            }
+            with open(os.path.join("data", "charts", f"survey_{survey_id}.json"), 'w', encoding='utf-8') as f:
+                json.dump(result_data, f, ensure_ascii=False, indent=4)
 
             for guild_id, channel_id in channels:
                 try:

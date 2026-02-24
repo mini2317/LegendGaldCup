@@ -907,6 +907,20 @@ class BotAdmin(commands.Cog):
         if all_opinions:
             clustered_data = await master_cog.cluster_opinions(active_survey['topic'], all_opinions)
 
+        import os
+        import json
+        os.makedirs(os.path.join("data", "charts"), exist_ok=True)
+        result_data = {
+            "survey_id": survey_id,
+            "topic": active_survey['topic'],
+            "total_votes": total_votes_users,
+            "options_counts": options_counts,
+            "stats_str": stats_str,
+            "clustered_data": clustered_data
+        }
+        with open(os.path.join("data", "charts", f"survey_{survey_id}.json"), 'w', encoding='utf-8') as f:
+            json.dump(result_data, f, ensure_ascii=False, indent=4)
+
         embed = discord.Embed(
             title=f"🛠️ [테스트] 갈드컵 중간 결과: {active_survey['topic']}",
             description=stats_str,

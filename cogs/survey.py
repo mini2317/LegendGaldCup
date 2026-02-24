@@ -578,45 +578,187 @@ class Survey(commands.Cog):
             view = OpinionPaginationView(survey['topic'], all_opinions)
             await interaction.followup.send(embed=view.get_embed(), view=view, ephemeral=True)
 
-    @app_commands.command(name="통계", description="최근 종료된 5개의 갈드컵 결과 요약을 보여줍니다.")
+    @app_commands.command(name="통계", description="과거에 종료된 모든 갈드컵 주제 목록과 결과를 열람합니다.")
     async def statistics(self, interaction: discord.Interaction):
-        past_surveys = await database.get_past_surveys(5)
+        past_surveys = await database.get_past_surveys(100) # Get up to 100 recent
         if not past_surveys:
             await interaction.response.send_message("❌ 아직 종료된 갈드컵이 없습니다.", ephemeral=True)
             return
 
-        import json
+        view = SurveyHistoryPaginationView(past_surveys)
+        await interaction.response.send_message(embed=view.get_embed(), view=view, ephemeral=True)
+
+    @app_commands.command(name="조회", description="특정 갈드컵 ID를 입력하여 과거 결과를 상세 조회합니다.")
+    @app_commands.describe(survey_id="조회할 갈드컵의 고유 ID 번호")
+    async def lookup_survey(self, interaction: discord.Interaction, survey_id: int):
+        await send_archived_survey_result(interaction, survey_id)
+
+import os
+import json
+import io
+
+async def send_archived_survey_result(interaction: discord.Interaction, survey_id: int):
+    # Retrieve past survey basic metadata from DB to check existence
+    async with aiosqlite.connect(database.DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM surveys WHERE id = ?', (survey_id,)) as cursor:
+            survey_row = await cursor.fetchone()
+            
+    if not survey_row:
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ ID {survey_id}인 설문을 찾을 수 없습니다.", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ ID {survey_id}인 설문을 찾을 수 없습니다.", ephemeral=True)
+        return
+
+    survey_data = dict(survey_row)
+    topic = survey_data['topic']
+
+    json_path = os.path.join("data", "charts", f"survey_{survey_id}.json")
+    png_path = os.path.join("data", "charts", f"survey_{survey_id}.png")
+
+    if os.path.exists(json_path):
+        with open(json_path, 'r', encoding='utf-8') as f:
+            archived = json.load(f)
+        
+        stats_str = archived.get('stats_str', "데이터 없음")
+        clustered_data = archived.get('clustered_data', [])
+        
         embed = discord.Embed(
-            title="📊 최근 갈드컵 통계 (최대 5개)",
-            color=discord.Color.purple()
+            title=f"📜 과거 갈드컵 조회 [{survey_id}회차]: {topic}",
+            description=stats_str,
+            color=discord.Color.teal()
+        )
+        
+        if clustered_data:
+            cluster_text = ""
+            valid_clusters = [c for c in clustered_data if c.get('count', 0) > 0]
+            for idx, c in enumerate(valid_clusters):
+                quote = c.get('quote', '')
+                quote_str = f'\n> 💬 "{quote}"' if quote else ''
+                cluster_text += f"**{idx+1}. {c.get('name', '그룹')}** ({c.get('count', 0)}명)\n*{c.get('summary', '')}*{quote_str}\n\n"
+            if cluster_text:
+                embed.add_field(name="🤖 AI 여론 분석 (당시 기록)", value=cluster_text[:1024], inline=False)
+    else:
+        # Fallback for old surveys before JSON archiving was added
+        votes = await database.get_votes_for_survey(survey_id)
+        total_votes = len(votes)
+        raw_options = json.loads(survey_data['options'])
+        option_names = [opt.get('name', str(opt)) if isinstance(opt, dict) else str(opt) for opt in raw_options]
+        counts = {name: 0 for name in option_names}
+        for v in votes:
+            chosen = [c.strip() for c in v['selected_option'].split(',')]
+            for c in chosen:
+                if c in counts: counts[c] += 1
+                else: counts[c] = 1
+                
+        stats_str = f"총 참여인원: {total_votes}명\n"
+        for opt, cnt in sorted(counts.items(), key=lambda item: item[1], reverse=True):
+            ratio = (cnt / total_votes * 100) if total_votes > 0 else 0
+            stats_str += f"- **{opt}**: {ratio:.1f}% ({cnt}표)\n"
+            
+        embed = discord.Embed(
+            title=f"📜 과거 갈드컵 조회 [{survey_id}회차]: {topic}",
+            description=stats_str + "\n\n*(이 데이터는 구버전 기록으로 AI 텍스트 및 전용 차트가 없을 수 있습니다.)*",
+            color=discord.Color.teal()
         )
 
-        for s in past_surveys:
-            votes = await database.get_votes_for_survey(s['id'])
-            total_votes = len(votes)
-            raw_options = json.loads(s['options'])
-            
-            option_names = [opt.get('name', str(opt)) if isinstance(opt, dict) else str(opt) for opt in raw_options]
-            options_counts = {name: 0 for name in option_names}
-            for v in votes:
-                chosen = [c.strip() for c in v['selected_option'].split(',')]
-                for c in chosen:
-                    if c in options_counts:
-                        options_counts[c] += 1
-                    else:
-                        options_counts[c] = 1
-            
-            stats_str = f"총 투표수: {total_votes}명 참여\n"
-            if total_votes > 0:
-                best_opt = max(options_counts, key=options_counts.get)
-                stats_str += f"**🏆 우승: {best_opt}** ({options_counts[best_opt]}표)"
-            else:
-                stats_str += "투표 없음"
+    file = None
+    if os.path.exists(png_path):
+        file = discord.File(png_path, filename="chart.png")
+        embed.set_image(url="attachment://chart.png")
+        
+    if not interaction.response.is_done():
+        if file:
+            await interaction.response.send_message(embed=embed, file=file, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+    else:
+        if file:
+            await interaction.followup.send(embed=embed, file=file, ephemeral=True)
+        else:
+            await interaction.followup.send(embed=embed, ephemeral=True)
 
-            time_str = s['end_time'] if s['end_time'] else "알 수 없음"
-            embed.add_field(name=f"Q. {s['topic']} ({time_str[:10]})", value=stats_str, inline=False)
+class SurveyHistoryPaginationView(discord.ui.View):
+    def __init__(self, past_surveys: list):
+        super().__init__(timeout=600)
+        self.surveys = past_surveys
+        self.current_page = 0
+        self.per_page = 5
+        self.max_pages = max(1, (len(past_surveys) + self.per_page - 1) // self.per_page)
+        self.update_components()
+
+    def update_components(self):
+        self.clear_items()
+        
+        # Add Select Menu for the current page items
+        start_idx = self.current_page * self.per_page
+        end_idx = start_idx + self.per_page
+        page_surveys = self.surveys[start_idx:end_idx]
+        
+        if page_surveys:
+            options = []
+            for s in page_surveys:
+                topic = s['topic']
+                title = topic[:90] + "..." if len(topic) > 90 else topic
+                options.append(discord.SelectOption(
+                    label=f"ID: {s['id']}회차",
+                    description=title,
+                    value=str(s['id']),
+                    emoji="📊"
+                ))
+                
+            select = discord.ui.Select(
+                placeholder="상세 결과를 조회할 주제를 선택하세요...",
+                min_values=1, max_values=1,
+                options=options
+            )
             
-        await interaction.response.send_message(embed=embed, ephemeral=False)
+            async def select_callback(interaction: discord.Interaction):
+                selected_id = int(select.values[0])
+                await send_archived_survey_result(interaction, selected_id)
+                
+            select.callback = select_callback
+            self.add_item(select)
+            
+        # Add Pagination Buttons
+        prev_btn = discord.ui.Button(label="⬅️ 이전", style=discord.ButtonStyle.secondary, disabled=(self.current_page == 0))
+        next_btn = discord.ui.Button(label="➡️ 다음", style=discord.ButtonStyle.secondary, disabled=(self.current_page == self.max_pages - 1))
+        
+        async def prev_callback(interaction: discord.Interaction):
+            self.current_page -= 1
+            self.update_components()
+            await interaction.response.edit_message(embed=self.get_embed(), view=self)
+            
+        async def next_callback(interaction: discord.Interaction):
+            self.current_page += 1
+            self.update_components()
+            await interaction.response.edit_message(embed=self.get_embed(), view=self)
+            
+        prev_btn.callback = prev_callback
+        next_btn.callback = next_callback
+        
+        self.add_item(prev_btn)
+        self.add_item(next_btn)
+
+    def get_embed(self) -> discord.Embed:
+        embed = discord.Embed(
+            title="📚 과거 갈드컵 통계 기록 (페이지네이션)",
+            color=discord.Color.purple()
+        )
+        
+        start_idx = self.current_page * self.per_page
+        end_idx = start_idx + self.per_page
+        page_surveys = self.surveys[start_idx:end_idx]
+        
+        desc = f"총 {len(self.surveys)}개의 종료된 갈드컵 기록이 있습니다.\n아래 드롭다운 메뉴를 클릭하여 상세 결과(이미지 및 분석)를 조회해 보세요!\n\n"
+        for s in page_surveys:
+            time_str = s['end_time'][:10] if s['end_time'] else "알 수 없음"
+            desc += f"**[ID: {s['id']}]** {s['topic']} ({time_str})\n"
+            
+        embed.description = desc
+        embed.set_footer(text=f"페이지 {self.current_page + 1} / {self.max_pages}")
+        return embed
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Survey(bot))
