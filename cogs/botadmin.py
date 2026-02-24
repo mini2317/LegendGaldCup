@@ -855,7 +855,7 @@ class BotAdmin(commands.Cog):
         # Note: No need to restart survey_loop since it polls every minute
 
     @commands.command(name="차트테스트", description="[관리자 전용] 현재 진행 중인 주제의 예상 마감 결과(차트 및 AI 분석)를 미리 생성해 확인합니다.")
-    async def chart_test(self, ctx: commands.Context):
+    async def chart_test(self, ctx: commands.Context, save_flag: str = None):
         if not await self.check_is_bot_admin(ctx):
             return
             
@@ -869,6 +869,12 @@ class BotAdmin(commands.Cog):
         if not votes:
             await ctx.send("❌ 등록된 표가 없기 때문에 차트 및 여론 분석 테스트를 진행할 수 없습니다.")
             return
+
+        if save_flag == '1':
+            new_id = await database.create_survey_snapshot(survey_id)
+            if new_id:
+                survey_id = new_id
+                await ctx.send("💾 **스냅샷 복사 완료!**\n현재 진행 중인 투표를 닫지 않고, 지금 이 순간의 결과를 과거 통계 기록(`/조회`)으로 박제합니다.")
 
         await ctx.send("📊 현재까지의 투표 데이터를 바탕으로 차트와 AI 분류 텍스트를 생성 중입니다. (약 5~10초 소요)...")
         master_cog = self.bot.get_cog('Master')
@@ -954,6 +960,38 @@ class BotAdmin(commands.Cog):
         if all_ops_formatted:
             view = OpinionPaginationView(active_survey['topic'], all_ops_formatted)
             await ctx.send(embed=view.get_embed(), view=view)
+
+    @commands.command(name="통계청소", description="[관리자 전용] 투표수가 0인 과거 기록과 스냅샷 데이터를 일괄 삭제합니다.")
+    async def clean_empty_statistics(self, ctx: commands.Context):
+        if not await self.check_is_bot_admin(ctx):
+            return
+            
+        await ctx.send("🧹 **0표 이하의 빈 과거 통계 데이터** 청소를 시작합니다...")
+        
+        past_surveys = await database.get_past_surveys(limit=1000)
+        deleted_count = 0
+        import os
+        
+        for s in past_surveys:
+            votes = await database.get_votes_for_survey(s['id'])
+            if len(votes) == 0:
+                await database.delete_survey(s['id'])
+                # remove files
+                json_path = os.path.join("data", "charts", f"survey_{s['id']}.json")
+                png_path = os.path.join("data", "charts", f"survey_{s['id']}.png")
+                if os.path.exists(json_path):
+                    try:
+                        os.remove(json_path)
+                    except:
+                        pass
+                if os.path.exists(png_path):
+                    try:
+                        os.remove(png_path)
+                    except:
+                        pass
+                deleted_count += 1
+                
+        await ctx.send(f"✅ 총 **{deleted_count}개**의 빈 통계 데이터를 깔끔하게 삭제했습니다.")
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(BotAdmin(bot))

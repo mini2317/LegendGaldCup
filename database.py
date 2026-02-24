@@ -236,6 +236,39 @@ async def get_past_surveys(limit=5):
         async with db.execute('SELECT * FROM surveys WHERE is_active = 0 ORDER BY end_time DESC LIMIT ?', (limit,)) as cursor:
             return await cursor.fetchall()
 
+async def create_survey_snapshot(survey_id: int):
+    """현재 진행 중인 투표를 종료하지 않고 통계 보존용 비활성 복사본을 생성합니다."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM surveys WHERE id = ?', (survey_id,)) as cursor:
+            row = await cursor.fetchone()
+            if not row: return None
+            
+        async with db.execute('''
+            INSERT INTO surveys (topic, options, allow_multiple, allow_short_answer, image_url, start_time, end_time, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 0)
+        ''', (row['topic'], row['options'], row['allow_multiple'], row['allow_short_answer'], row['image_url'], row['start_time'])) as cursor:
+            new_id = cursor.lastrowid
+            
+        async with db.execute('SELECT * FROM votes WHERE survey_id = ?', (survey_id,)) as cursor:
+            votes = await cursor.fetchall()
+            
+        for v in votes:
+            await db.execute('''
+                INSERT INTO votes (survey_id, user_id, server_id, selected_option, opinion, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (new_id, v['user_id'], v['server_id'], v['selected_option'], v['opinion'], v['updated_at']))
+            
+        await db.commit()
+        return new_id
+
+async def delete_survey(survey_id: int):
+    """특정 설문과 연관된 모든 투표 데이터를 삭제합니다."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('DELETE FROM votes WHERE survey_id = ?', (survey_id,))
+        await db.execute('DELETE FROM surveys WHERE id = ?', (survey_id,))
+        await db.commit()
+
 # --- Bot Admin Functions ---
 async def add_bot_admin(user_id: int):
     async with aiosqlite.connect(DB_FILE) as db:

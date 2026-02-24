@@ -196,13 +196,13 @@ class Master(commands.Cog):
             autotext.set_fontweight('bold')
                     
         # Add legend outside the pie to prevent overlapping
-        ax.legend(wedges, safe_labels,
-                  title="옵션 항목",
+        legend = ax.legend(wedges, safe_labels,
                   loc="center left",
                   bbox_to_anchor=(1, 0, 0.5, 1),
                   prop=font_prop)
+        legend.set_title("옵션 항목", prop=font_prop)
                   
-        ax.set_title('📊 갈드컵 득표 비율', fontproperties=font_prop, fontsize=18, pad=20)
+        ax.set_title('갈드컵 득표 비율', fontproperties=font_prop, fontsize=18, pad=20)
         
         plt.tight_layout()
         
