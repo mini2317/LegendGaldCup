@@ -153,40 +153,51 @@ class Master(commands.Cog):
             logger.error(f"Error clustering opinions with Gemini: {e}")
             return []
 
-    def generate_option_chart_blocking(self, options_counts: dict) -> bytes:
+    def generate_option_chart_blocking(self, options_counts: dict, survey_id: int) -> bytes:
         if not options_counts or sum(options_counts.values()) == 0:
             return None
             
-        plt.rcParams['font.family'] = 'Malgun Gothic'
-        plt.rcParams['axes.unicode_minus'] = False
+        import os
+        from matplotlib import font_manager
         
+        # Load explicit font
+        font_path = os.path.join("src", "fonts", "BMJUA_ttf.ttf")
+        if os.path.exists(font_path):
+            font_prop = font_manager.FontProperties(fname=font_path)
+        else:
+            font_prop = font_manager.FontProperties(family='Malgun Gothic') # fallback
+            
         # Sort data
         sorted_items = sorted(options_counts.items(), key=lambda x: x[1])
         labels = [item[0] for item in sorted_items]
         sizes = [item[1] for item in sorted_items]
         
-        fig, ax = plt.subplots(figsize=(8, 5))
+        fig, ax = plt.subplots(figsize=(7, 7))
         
-        # Prettier colors - Cool to Warm or similar themed palette
+        # Pie/Donut Chart
         colors = plt.cm.Set3.colors[:len(labels)]
+        wedges, texts, autotexts = ax.pie(
+            sizes, labels=labels, autopct='%1.1f%%',
+            startangle=140, colors=colors,
+            wedgeprops=dict(width=0.4, edgecolor='w', linewidth=2),
+            textprops=dict(fontproperties=font_prop, fontsize=12)
+        )
         
-        # Horizontal bar chart
-        bars = ax.barh(labels, sizes, color=colors, edgecolor='dimgray', linewidth=1.5, height=0.6)
-        
-        # Add values on the bars
-        for bar in bars:
-            width = bar.get_width()
-            ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, f'{int(width)}표', 
-                    ha='left', va='center', fontweight='bold', fontsize=12)
+        for autotext in autotexts:
+            autotext.set_fontproperties(font_prop)
+            autotext.set_fontsize(14)
+            autotext.set_fontweight('bold')
                     
-        ax.set_title('📊 갈드컵 최종 기표 결과', fontsize=16, fontweight='bold', pad=20)
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-        ax.xaxis.set_visible(False)
-        ax.tick_params(axis='y', labelsize=12, length=0)
+        ax.set_title('📊 갈드컵 득표 비율', fontproperties=font_prop, fontsize=18, pad=20)
         
         plt.tight_layout()
         
+        # Save to Local Disk Archive
+        os.makedirs(os.path.join("data", "charts"), exist_ok=True)
+        archive_path = os.path.join("data", "charts", f"survey_{survey_id}.png")
+        plt.savefig(archive_path, format='png', dpi=150, bbox_inches='tight', transparent=False, facecolor='#f8f9fa')
+        
+        # Also return bytes for immediate upload
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=150, bbox_inches='tight', transparent=False, facecolor='#f8f9fa')
         plt.close()
@@ -255,7 +266,7 @@ class Master(commands.Cog):
                         server_opinions[v['server_id']] = []
                     server_opinions[v['server_id']].append(f"[{v['selected_option']}] {v['opinion']}")
 
-            chart_bytes = await asyncio.to_thread(self.generate_option_chart_blocking, options_counts)
+            chart_bytes = await asyncio.to_thread(self.generate_option_chart_blocking, options_counts, survey_id)
             
             clustered_data = []
             if all_opinions:
@@ -298,13 +309,16 @@ class Master(commands.Cog):
 
                 try:
                     from cogs.survey import OpinionPaginationView
+                    from cogs.survey import OpinionPaginationView
                     all_ops_formatted = [f"[{v['selected_option']}] \"{v['opinion']}\"" for v in votes if v['opinion']]
                     
+                    # 먼저 통계 및 차트를 전송
+                    await channel.send(embed=embed, files=files)
+                    
+                    # 의견이 있으면 별도의 메세지로 페이지네이션 뷰를 전송
                     if all_ops_formatted:
-                        view = OpinionPaginationView(embed, all_ops_formatted)
-                        await channel.send(embed=view.get_embed(), files=files, view=view)
-                    else:
-                        await channel.send(embed=embed, files=files)
+                        view = OpinionPaginationView(active_survey['topic'], all_ops_formatted)
+                        await channel.send(embed=view.get_embed(), view=view)
                 except Exception as e:
                     logger.error(f"Failed to send result to channel {channel_id}: {e}")
 

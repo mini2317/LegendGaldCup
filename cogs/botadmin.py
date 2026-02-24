@@ -901,7 +901,7 @@ class BotAdmin(commands.Cog):
 
         all_opinions = [v['opinion'] for v in votes if v['opinion']]
         import asyncio
-        chart_bytes = await asyncio.to_thread(master_cog.generate_option_chart_blocking, options_counts)
+        chart_bytes = await asyncio.to_thread(master_cog.generate_option_chart_blocking, options_counts, survey_id)
         
         clustered_data = []
         if all_opinions:
@@ -933,11 +933,13 @@ class BotAdmin(commands.Cog):
         from cogs.survey import OpinionPaginationView
         all_ops_formatted = [f"[{v['selected_option']}] \"{v['opinion']}\"" for v in votes if v['opinion']]
         
+        # 먼저 통계 및 차트 전송
+        await ctx.send(embed=embed, files=files)
+        
+        # 의견이 있으면 별도의 메세지로 페이지네이션 뷰를 전송
         if all_ops_formatted:
-            view = OpinionPaginationView(embed, all_ops_formatted)
-            await ctx.send(embed=view.get_embed(), files=files, view=view)
-        else:
-            await ctx.send(embed=embed, files=files)
+            view = OpinionPaginationView(active_survey['topic'], all_ops_formatted)
+            await ctx.send(embed=view.get_embed(), view=view)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(BotAdmin(bot))

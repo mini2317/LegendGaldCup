@@ -439,9 +439,9 @@ class VoteSelectView(discord.ui.View):
 
 
 class OpinionPaginationView(discord.ui.View):
-    def __init__(self, base_embed: discord.Embed, opinions: list):
+    def __init__(self, topic_name: str, opinions: list):
         super().__init__(timeout=600)
-        self.base_embed = base_embed
+        self.topic_name = topic_name
         self.opinions = opinions
         self.current_page = 0
         self.per_page = 5
@@ -453,18 +453,21 @@ class OpinionPaginationView(discord.ui.View):
         self.next_btn.disabled = (self.current_page >= self.max_pages - 1)
 
     def get_embed(self) -> discord.Embed:
-        embed = self.base_embed.copy()
+        embed = discord.Embed(
+            title=f"💬 의견 모아보기: {self.topic_name}",
+            color=discord.Color.light_embed()
+        )
         
         start_idx = self.current_page * self.per_page
         end_idx = start_idx + self.per_page
         page_ops = self.opinions[start_idx:end_idx]
         
         if not page_ops:
-            embed.add_field(name="👀 익명 의견들", value="아직 작성된 의견이 없습니다.", inline=False)
+            embed.description = "아직 작성된 의견이 없습니다."
         else:
             opinions_text = "\n\n".join([f"- {opt}" for opt in page_ops])
             page_text = f" (페이지 {self.current_page + 1}/{self.max_pages})" if self.max_pages > 1 else ""
-            embed.add_field(name=f"👀 익명 의견들{page_text}", value=opinions_text[:1024], inline=False)
+            embed.description = f"**👀 익명 유저들의 반응{page_text}**\n\n{opinions_text[:3500]}"
             
         embed.set_footer(text=f"총 {len(self.opinions)}개의 의견이 등록됨 | 좌우 화살표를 눌러 넘겨보세요")
         return embed
@@ -567,12 +570,13 @@ class Survey(commands.Cog):
         # 의견 나열 (pagenation 적용)
         all_opinions = [f"[{v['selected_option']}] \"{v['opinion']}\"" for v in votes if v['opinion']]
         
+        # 먼저 통계 엠베드를 전송
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # 의견이 있으면 별도의 메세지로 페이지네이션 뷰를 전송 (followup)
         if all_opinions:
-            view = OpinionPaginationView(embed, all_opinions)
-            await interaction.response.send_message(embed=view.get_embed(), view=view, ephemeral=True)
-        else:
-            embed.add_field(name="👀 의견", value="아직 작성된 의견이 없습니다.", inline=False)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            view = OpinionPaginationView(survey['topic'], all_opinions)
+            await interaction.followup.send(embed=view.get_embed(), view=view, ephemeral=True)
 
     @app_commands.command(name="통계", description="최근 종료된 5개의 갈드컵 결과 요약을 보여줍니다.")
     async def statistics(self, interaction: discord.Interaction):
