@@ -596,6 +596,7 @@ class Survey(commands.Cog):
 import os
 import json
 import io
+import aiosqlite
 
 async def send_archived_survey_result(interaction: discord.Interaction, survey_id: int):
     # Retrieve past survey basic metadata from DB to check existence
