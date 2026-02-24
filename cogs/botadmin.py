@@ -269,7 +269,7 @@ class TopicPaginationView(discord.ui.View):
             view=self
         )
         
-    @discord.ui.button(label="이 주제 기획 빌더 시작", style=discord.ButtonStyle.primary, emoji="🛠️", row=1)
+    @discord.ui.button(label="이 주제 수정하기", style=discord.ButtonStyle.primary, emoji="🛠️", row=1)
     async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         topic = self.topics[self.current_page]
         from cogs.survey import SuggestionBuilderView
@@ -401,14 +401,12 @@ class QueuePaginationView(discord.ui.View):
             self.prev_btn.disabled = True
             self.next_btn.disabled = True
             self.force_pick_btn.disabled = True
-            self.edit_btn.disabled = True
             self.delete_btn.disabled = True
             self.move_up_btn.disabled = True
             self.move_down_btn.disabled = True
             self.return_btn.disabled = True
         else:
             self.force_pick_btn.disabled = False
-            self.edit_btn.disabled = False
             self.delete_btn.disabled = False
             self.return_btn.disabled = False
             self.move_up_btn.disabled = (self.current_page == 0)
@@ -762,9 +760,16 @@ class BotAdmin(commands.Cog):
                 
             await ctx.send(f"📦 업데이트 내역이 감지되었습니다:\n```\n{output[:1800]}\n```\n🔄 새 종속성 설치 및 완전한 패치 적용을 위해 봇 프로세스를 **강제 재기동**합니다. 잠시 후 다시 시작됩니다...")
             
+            # Ensure all .sh files remain executable after git operations
+            if os.name != 'nt':  # Only needed on Linux/macOS
+                try:
+                    subprocess.run(['chmod', '+x', 'start_bot.sh', 'stop_bot.sh', 'restart_bot.sh'], check=False)
+                except Exception as chmod_err:
+                    logger.warning(f"Failed to set executable permissions: {chmod_err}")
+
             # Use platform-independent way to restart if possible, or trigger the shell script
             import sys
-            if os.path.exists('restart_bot.sh'):
+            if os.path.exists('restart_bot.sh') and os.name != 'nt':
                 # Linux/macOS environment
                 subprocess.Popen(['bash', 'restart_bot.sh'], start_new_session=True)
             else:
@@ -848,6 +853,91 @@ class BotAdmin(commands.Cog):
         # This will trigger the rotation, print stats, and fetch the next topic immediately
         await master_cog.process_survey_rotation()
         # Note: No need to restart survey_loop since it polls every minute
+
+    @commands.command(name="차트테스트", description="[관리자 전용] 현재 진행 중인 주제의 예상 마감 결과(차트 및 AI 분석)를 미리 생성해 확인합니다.")
+    async def chart_test(self, ctx: commands.Context):
+        if not await self.check_is_bot_admin(ctx):
+            return
+            
+        active_survey = await database.get_active_survey()
+        if not active_survey:
+            await ctx.send("❌ 현재 진행 중인 갈드컵 주제가 없어 테스트할 수 없습니다.")
+            return
+
+        survey_id = active_survey['id']
+        votes = await database.get_votes_for_survey(survey_id)
+        if not votes:
+            await ctx.send("❌ 등록된 표가 없기 때문에 차트 및 여론 분석 테스트를 진행할 수 없습니다.")
+            return
+
+        await ctx.send("📊 현재까지의 투표 데이터를 바탕으로 차트와 AI 분류 텍스트를 생성 중입니다. (약 5~10초 소요)...")
+        master_cog = self.bot.get_cog('Master')
+
+        total_votes_users = len(votes)
+        options_counts = {}
+        for opt in active_survey['options']:
+            opt_name = opt.get('name', opt) if isinstance(opt, dict) else opt
+            options_counts[opt_name] = 0
+            
+        for v in votes:
+            chosen = [c.strip() for c in v['selected_option'].split(',')]
+            for c in chosen:
+                if c in options_counts:
+                    options_counts[c] += 1
+                else:
+                    options_counts[c] = 1
+
+        stats_str = f"테스트 투표 참여인원: {total_votes_users}명\n"
+        for opt, cnt in sorted(options_counts.items(), key=lambda item: item[1], reverse=True):
+            ratio = (cnt / total_votes_users * 100) if total_votes_users > 0 else 0
+            stats_str += f"- **{opt}**: {ratio:.1f}% ({cnt}표)\n"
+
+        server_opinions = {}
+        for v in votes:
+            if v['opinion']:
+                if v['server_id'] not in server_opinions:
+                    server_opinions[v['server_id']] = []
+                server_opinions[v['server_id']].append(f"[{v['selected_option']}] {v['opinion']}")
+
+        all_opinions = [v['opinion'] for v in votes if v['opinion']]
+        import asyncio
+        chart_bytes = await asyncio.to_thread(master_cog.generate_option_chart_blocking, options_counts)
+        
+        clustered_data = []
+        if all_opinions:
+            clustered_data = await master_cog.cluster_opinions(active_survey['topic'], all_opinions)
+
+        embed = discord.Embed(
+            title=f"🛠️ [테스트] 갈드컵 중간 결과: {active_survey['topic']}",
+            description=stats_str,
+            color=discord.Color.blue()
+        )
+
+        if clustered_data:
+            cluster_text = ""
+            valid_clusters = [c for c in clustered_data if c.get('count', 0) > 0]
+            for idx, c in enumerate(valid_clusters):
+                quote = c.get('quote', '')
+                quote_str = f'\n> 💬 "{quote}"' if quote else ''
+                cluster_text += f"**{idx+1}. {c.get('name', '그룹')}** ({c.get('count', 0)}명)\n*{c.get('summary', '')}*{quote_str}\n\n"
+            if cluster_text:
+                embed.add_field(name="🤖 AI 여론 분석 (유형별 대표 의견)", value=cluster_text[:1024], inline=False)
+
+        import io
+        files = []
+        if chart_bytes:
+            image_file = discord.File(io.BytesIO(chart_bytes), filename="chart_test.png")
+            embed.set_image(url="attachment://chart_test.png")
+            files.append(image_file)
+
+        from cogs.survey import OpinionPaginationView
+        all_ops_formatted = [f"[{v['selected_option']}] \"{v['opinion']}\"" for v in votes if v['opinion']]
+        
+        if all_ops_formatted:
+            view = OpinionPaginationView(embed, all_ops_formatted)
+            await ctx.send(embed=view.get_embed(), files=files, view=view)
+        else:
+            await ctx.send(embed=embed, files=files)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(BotAdmin(bot))

@@ -153,32 +153,42 @@ class Master(commands.Cog):
             logger.error(f"Error clustering opinions with Gemini: {e}")
             return []
 
-    def generate_opinion_chart_blocking(self, clustered_data: list) -> bytes:
-        if not clustered_data:
-            return None
-            
-        # Filter out invalid or zero-count clusters to prevent squarify ZeroDivisionError
-        valid_data = [item for item in clustered_data if item.get('count', 0) > 0]
-        if not valid_data:
+    def generate_option_chart_blocking(self, options_counts: dict) -> bytes:
+        if not options_counts or sum(options_counts.values()) == 0:
             return None
             
         plt.rcParams['font.family'] = 'Malgun Gothic'
         plt.rcParams['axes.unicode_minus'] = False
         
-        sizes = [item.get('count', 1) for item in valid_data]
-        labels = [f"{item.get('name', '그룹')}\n({item.get('count', 0)})" for item in valid_data]
+        # Sort data
+        sorted_items = sorted(options_counts.items(), key=lambda x: x[1])
+        labels = [item[0] for item in sorted_items]
+        sizes = [item[1] for item in sorted_items]
         
-        # If there are more clusters than colors, we can loop colors or slice safely
-        colors = list(plt.cm.Pastel1.colors)
-        if len(valid_data) > len(colors):
-            colors = colors * (len(valid_data) // len(colors) + 1)
+        fig, ax = plt.subplots(figsize=(8, 5))
         
-        plt.figure(figsize=(8, 6))
-        squarify.plot(sizes=sizes, label=labels, color=colors[:len(valid_data)], alpha=0.8, text_kwargs={'fontsize':11, 'weight':'bold'})
-        plt.axis('off')
+        # Prettier colors - Cool to Warm or similar themed palette
+        colors = plt.cm.Set3.colors[:len(labels)]
+        
+        # Horizontal bar chart
+        bars = ax.barh(labels, sizes, color=colors, edgecolor='dimgray', linewidth=1.5, height=0.6)
+        
+        # Add values on the bars
+        for bar in bars:
+            width = bar.get_width()
+            ax.text(width + 0.1, bar.get_y() + bar.get_height()/2, f'{int(width)}표', 
+                    ha='left', va='center', fontweight='bold', fontsize=12)
+                    
+        ax.set_title('📊 갈드컵 최종 기표 결과', fontsize=16, fontweight='bold', pad=20)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.xaxis.set_visible(False)
+        ax.tick_params(axis='y', labelsize=12, length=0)
+        
+        plt.tight_layout()
         
         buf = io.BytesIO()
-        plt.savefig(buf, format='png', bbox_inches='tight')
+        plt.savefig(buf, format='png', dpi=150, bbox_inches='tight', transparent=False, facecolor='#f8f9fa')
         plt.close()
         return buf.getvalue()
 
@@ -245,14 +255,11 @@ class Master(commands.Cog):
                         server_opinions[v['server_id']] = []
                     server_opinions[v['server_id']].append(f"[{v['selected_option']}] {v['opinion']}")
 
-            # AI Clustering and Chart Generation
-            all_opinions = [v['opinion'] for v in votes if v['opinion']]
-            chart_bytes = None
+            chart_bytes = await asyncio.to_thread(self.generate_option_chart_blocking, options_counts)
+            
             clustered_data = []
             if all_opinions:
                 clustered_data = await self.cluster_opinions(active_survey['topic'], all_opinions)
-                if clustered_data:
-                    chart_bytes = await asyncio.to_thread(self.generate_opinion_chart_blocking, clustered_data)
 
             for guild_id, channel_id in channels:
                 try:
@@ -270,39 +277,18 @@ class Master(commands.Cog):
                     color=discord.Color.red()
                 )
 
-                # Local server's opinions
-                local_ops = server_opinions.get(guild_id, [])
-                if local_ops:
-                    sample_local = random.sample(local_ops, min(3, len(local_ops)))
-                    embed.add_field(
-                        name="🔥 우리 서버의 반응", 
-                        value="\n".join([f"- {opt}" for opt in sample_local]), 
-                        inline=False
-                    )
 
-                # Pick a random OTHER server's opinions
-                other_servers = [sid for sid in server_opinions.keys() if sid != guild_id]
-                if other_servers:
-                    picked_server = random.choice(other_servers)
-                    opinions = server_opinions[picked_server]
-                    # Show up to 3 random opinions from that server
-                    sample_opinions = random.sample(opinions, min(3, len(opinions)))
-                    embed.add_field(
-                        name="💌 타 서버의 익명 반응 도착!", 
-                        value="\n".join([f"- {opt}" for opt in sample_opinions]), 
-                        inline=False
-                    )
-                else:
-                    embed.add_field(name="💌 타 서버 반응", value="타 서버에서 등록된 의견이 충분하지 않습니다.", inline=False)
 
-                # Add clustering summary text if available
+                # Add clustering summary text and quotes if available
                 if clustered_data:
                     cluster_text = ""
                     valid_clusters = [c for c in clustered_data if c.get('count', 0) > 0]
                     for idx, c in enumerate(valid_clusters):
-                        cluster_text += f"**{idx+1}. {c.get('name', '그룹')}** ({c.get('count', 0)}명)\n*{c.get('summary', '')}*\n\n"
+                        quote = c.get('quote', '')
+                        quote_str = f'\n> 💬 "{quote}"' if quote else ''
+                        cluster_text += f"**{idx+1}. {c.get('name', '그룹')}** ({c.get('count', 0)}명)\n*{c.get('summary', '')}*{quote_str}\n\n"
                     if cluster_text:
-                        embed.add_field(name="🤖 AI 여론 분석 결과", value=cluster_text[:1024], inline=False)
+                        embed.add_field(name="🤖 AI 여론 분석 (유형별 대표 의견)", value=cluster_text[:1024], inline=False)
 
                 files = []
                 if chart_bytes:
@@ -311,7 +297,14 @@ class Master(commands.Cog):
                     files.append(image_file)
 
                 try:
-                    await channel.send(embed=embed, files=files)
+                    from cogs.survey import OpinionPaginationView
+                    all_ops_formatted = [f"[{v['selected_option']}] \"{v['opinion']}\"" for v in votes if v['opinion']]
+                    
+                    if all_ops_formatted:
+                        view = OpinionPaginationView(embed, all_ops_formatted)
+                        await channel.send(embed=view.get_embed(), files=files, view=view)
+                    else:
+                        await channel.send(embed=embed, files=files)
                 except Exception as e:
                     logger.error(f"Failed to send result to channel {channel_id}: {e}")
 
@@ -466,7 +459,9 @@ class Master(commands.Cog):
             try:
                 await msg.pin(reason="최신 갈드컵 주제 메시지 지정을 위해 고정")
             except discord.Forbidden:
-                pass # 메시지는 보냈지만 핀 고정 권한이 없는 경우 조용히 무시
+                # 핀 고정 권한이 없는 경우 조용히 무시하되, 메시지 하단에 경고 문구 추가
+                embed.description += "\n\n⚠️ *(봇에게 **'메시지 관리'** 권한이 없어 이 메시지를 상단 고정할 수 없습니다. 채널 권한 설정을 확인해주세요!)*"
+                await msg.edit(embed=embed)
         except discord.Forbidden:
             # 메시지 채널 전송 권한 자체가 없는 경우
             await database.set_announcement_enabled(guild_id, 0)

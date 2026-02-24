@@ -20,6 +20,11 @@ async def init_db():
             await db.execute('ALTER TABLE servers ADD COLUMN announcement_enabled INTEGER DEFAULT 1')
         except Exception:
             pass
+
+        try:
+            await db.execute('ALTER TABLE servers ADD COLUMN welcome_shown INTEGER DEFAULT 0')
+        except Exception:
+            pass
         
         # 설문조사 메인 테이블
         await db.execute('''
@@ -124,6 +129,19 @@ async def set_announcement_enabled(guild_id: int, enabled: int):
             UPDATE servers SET announcement_enabled = ? WHERE guild_id = ?
         ''', (enabled, guild_id))
         await db.commit()
+
+async def check_and_set_welcome(guild_id: int) -> bool:
+    """Check if the welcome message was shown. If not, mark it as shown and return True. Otherwise return False."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT welcome_shown FROM servers WHERE guild_id = ?', (guild_id,)) as cursor:
+            row = await cursor.fetchone()
+            if row and row['welcome_shown'] == 1:
+                return False
+            else:
+                await db.execute('UPDATE servers SET welcome_shown = 1 WHERE guild_id = ?', (guild_id,))
+                await db.commit()
+                return True
 
 async def get_all_active_announcement_channels():
     async with aiosqlite.connect(DB_FILE) as db:

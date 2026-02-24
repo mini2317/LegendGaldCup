@@ -438,6 +438,49 @@ class VoteSelectView(discord.ui.View):
             )
 
 
+class OpinionPaginationView(discord.ui.View):
+    def __init__(self, base_embed: discord.Embed, opinions: list):
+        super().__init__(timeout=600)
+        self.base_embed = base_embed
+        self.opinions = opinions
+        self.current_page = 0
+        self.per_page = 5
+        self.max_pages = max(1, (len(opinions) + self.per_page - 1) // self.per_page)
+        self.update_buttons()
+
+    def update_buttons(self):
+        self.prev_btn.disabled = (self.current_page == 0)
+        self.next_btn.disabled = (self.current_page >= self.max_pages - 1)
+
+    def get_embed(self) -> discord.Embed:
+        embed = self.base_embed.copy()
+        
+        start_idx = self.current_page * self.per_page
+        end_idx = start_idx + self.per_page
+        page_ops = self.opinions[start_idx:end_idx]
+        
+        if not page_ops:
+            embed.add_field(name="👀 익명 의견들", value="아직 작성된 의견이 없습니다.", inline=False)
+        else:
+            opinions_text = "\n\n".join([f"- {opt}" for opt in page_ops])
+            page_text = f" (페이지 {self.current_page + 1}/{self.max_pages})" if self.max_pages > 1 else ""
+            embed.add_field(name=f"👀 익명 의견들{page_text}", value=opinions_text[:1024], inline=False)
+            
+        embed.set_footer(text=f"총 {len(self.opinions)}개의 의견이 등록됨 | 좌우 화살표를 눌러 넘겨보세요")
+        return embed
+
+    @discord.ui.button(label="이전", style=discord.ButtonStyle.secondary, emoji="⬅️")
+    async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page -= 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
+    @discord.ui.button(label="다음", style=discord.ButtonStyle.secondary, emoji="➡️")
+    async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page += 1
+        self.update_buttons()
+        await interaction.response.edit_message(embed=self.get_embed(), view=self)
+
 class Survey(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -521,18 +564,15 @@ class Survey(commands.Cog):
         stat_text = "\n".join([f"**{opt}**: {cnt}표" for opt, cnt in sorted(option_counts.items(), key=lambda item: item[1], reverse=True)])
         embed.add_field(name="투표 분포", value=stat_text if stat_text else "아직 투표가 없습니다.", inline=False)
         
-        # 의견 나열 (최근 10개 정도 익명으로)
-        recent_opinions = [v for v in list(votes) if v['opinion']]
+        # 의견 나열 (pagenation 적용)
+        all_opinions = [f"[{v['selected_option']}] \"{v['opinion']}\"" for v in votes if v['opinion']]
         
-        if recent_opinions:
-            opinions_text = ""
-            for v in recent_opinions[:10]: # 10개로 제한
-                opinions_text += f"\n- [{v['selected_option']}] \"{v['opinion']}\""
-            embed.add_field(name="👀 최근 익명 의견들", value=opinions_text, inline=False)
+        if all_opinions:
+            view = OpinionPaginationView(embed, all_opinions)
+            await interaction.response.send_message(embed=view.get_embed(), view=view, ephemeral=True)
         else:
             embed.add_field(name="👀 의견", value="아직 작성된 의견이 없습니다.", inline=False)
-            
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="통계", description="최근 종료된 5개의 갈드컵 결과 요약을 보여줍니다.")
     async def statistics(self, interaction: discord.Interaction):
