@@ -367,10 +367,9 @@ class Master(commands.Cog):
             image_url=image_url
         )
         
-        # Announce new survey
-        from datetime import datetime, timezone, timedelta
-        end_time = int((datetime.now(timezone.utc) + timedelta(hours=72)).timestamp())
+        new_topic_data['id'] = new_survey_id
         
+        # Announce new survey
         for guild_id, channel_id in channels:
             await self.announce_new_topic(guild_id, channel_id, new_topic_data, is_master, admin_force_user)
             
@@ -388,8 +387,9 @@ class Master(commands.Cog):
                     await guild.owner.send(f"⚠️ **[레전드 갈드컵]** 서버({guild.name})의 공지 채널이 삭제되었거나 봇이 접근할 수 없어 갈드컵 알림 송출이 자동 비활성화되었습니다. 서버 설정에서 다시 `/공지채널설정`을 진행해주세요.")
             except Exception:
                 pass
+            return
         except Exception:
-            continue
+            return
 
         manager_text = ""
         if admin_force_user:
@@ -399,15 +399,26 @@ class Master(commands.Cog):
         else:
             manager_text = "🎉 제안 목록 심사를 통과하여 선정된 이번 주 갈드컵 주제입니다!"
         
-        print("???")
+        from datetime import datetime, timezone, timedelta
+        if 'start_time' in new_topic_data and isinstance(new_topic_data['start_time'], str):
+            start_time = datetime.strptime(new_topic_data['start_time'], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+            end_time = int((start_time + timedelta(hours=72)).timestamp())
+        else:
+            end_time = int((datetime.now(timezone.utc) + timedelta(hours=72)).timestamp())
+
         embed = discord.Embed(
-            title=f"{'📣 새로운 주제' if is_new_channel else '📢 현재 진행 중인 갈드컵 주제'}: {new_topic_data['topic']}",
+            title=f"{'📣 새로운 주제' if not is_new_channel else '📢 현재 진행 중인 갈드컵 주제'}: {new_topic_data['topic']}",
             description=f"{manager_text}\n\n아래 선택바를 클릭해 당신의 선택과 의견을 남겨주세요!\n⏳ **투표 마감 예정:** <t:{end_time}:R>",
             color=(discord.Color.green() if not is_new_channel else discord.Color.yellow()) if not admin_force_user else discord.Color.brand_red()
         )
         
+        options = new_topic_data['options']
+        if isinstance(options, str):
+            import json
+            options = json.loads(options)
+            
         desc_text = ""
-        for idx, opt in enumerate(new_topic_data['options']):
+        for idx, opt in enumerate(options):
             if isinstance(opt, dict):
                 desc_text += f"**{idx+1}. {opt.get('name', '옵션')}**\n- {opt.get('desc', '')}\n\n"
             else:
@@ -416,6 +427,7 @@ class Master(commands.Cog):
         if desc_text:
             embed.add_field(name="선택지", value=desc_text.strip(), inline=False)
             
+        image_url = new_topic_data.get('image_url')
         if image_url:
             import urllib.parse
             parsed = urllib.parse.urlparse(image_url)
@@ -427,19 +439,24 @@ class Master(commands.Cog):
                 embed.add_field(name="🔗 참고 링크", value=image_url, inline=False)
         
         from cogs.survey import VoteSelectView
+        survey_id = new_topic_data.get('id', 0)
         view = VoteSelectView(
-            new_survey_id, 
-            new_topic_data['options'], 
-            new_topic_data.get('allow_short_answer', False), 
-            new_topic_data.get('allow_multiple', False)
+            survey_id, 
+            options, 
+            bool(new_topic_data.get('allow_short_answer', False)), 
+            bool(new_topic_data.get('allow_multiple', False))
         )
         
-        # 이전 메시지 고정 해제 (bot 메시지만 추출)
+        # 이전 메시지 고정 해제 및 버튼 제거 (bot 메시지만 추출)
         try:
             pins = await channel.pins()
             for p_msg in pins:
-                if p_msg.author == self.bot.user and p_msg.embeds and "📣 새로운 주제" in str(p_msg.embeds[0].title):
+                if p_msg.author == self.bot.user and p_msg.embeds and ("📣 새로운 주제" in str(p_msg.embeds[0].title) or "📢 현재 진행 중인" in str(p_msg.embeds[0].title)):
                     await p_msg.unpin()
+                    try:
+                        await p_msg.edit(view=None)
+                    except Exception:
+                        pass
                     break
         except Exception:
             pass

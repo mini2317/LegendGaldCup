@@ -44,11 +44,8 @@ class Admin(commands.Cog):
         if survey:
             master_cog = self.bot.get_cog("Master")
             if master_cog:
-                embed = await master_cog.announce_new_topic(interaction.guild_id, channel.id, survey, is_new_channel=True)
-                try:
-                    await channel.send(embed=embed)
-                except Exception:
-                    pass
+                # 봇이 새로운 채널 배정을 받았을 때 현재 진행 중인 주제를 송출
+                await master_cog.announce_new_topic(interaction.guild_id, channel.id, survey, is_new_channel=True)
 
     @app_commands.command(name="알림설정", description="[관리자 전용] 갈드컵 새 주제 및 결과 공지를 켜거나 끕니다.")
     @app_commands.describe(enable="알림 송출 여부 (True=켜기, False=끄기)")

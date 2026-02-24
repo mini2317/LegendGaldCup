@@ -144,103 +144,6 @@ class AIGeneratedTopicView(discord.ui.View):
         await interaction.response.edit_message(content="❌ 생성된 주제가 거절되었습니다.", view=self)
 
 
-class EditTopicModal(discord.ui.Modal):
-    def __init__(self, topic_data: dict, ui_view: discord.ui.View, is_queue: bool = False):
-        super().__init__(title='주제 수정하기')
-        self.topic_data = topic_data
-        self.ui_view = ui_view
-        self.is_queue = is_queue
-        
-        self.topic = discord.ui.TextInput(
-            label='1. 갈드컵 주제',
-            style=discord.TextStyle.short,
-            default=topic_data['topic'],
-            required=True,
-            max_length=100
-        )
-        self.add_item(self.topic)
-        
-        # Format options for editing
-        options_str = []
-        for opt in topic_data['options']:
-            if isinstance(opt, dict):
-                desc = opt.get('desc', '')
-                if desc:
-                    options_str.append(f"{opt.get('name')}:{desc}")
-                else:
-                    options_str.append(str(opt.get('name', '')))
-            else:
-                options_str.append(str(opt))
-                
-        self.options = discord.ui.TextInput(
-            label='2. 선택 옵션 (이름:설명, 쉼표 구분)',
-            style=discord.TextStyle.short,
-            default=", ".join(options_str)[:200],
-            required=True,
-            max_length=200
-        )
-        self.add_item(self.options)
-
-        self.allow_multiple = discord.ui.TextInput(
-            label='3. 중복투표 가능여부 (O/X)',
-            style=discord.TextStyle.short,
-            default='O' if topic_data['allow_multiple'] else 'X',
-            required=True,
-            max_length=1
-        )
-        self.add_item(self.allow_multiple)
-
-        self.allow_short = discord.ui.TextInput(
-            label='4. 단답형 허용여부 (O/X)',
-            style=discord.TextStyle.short,
-            default='O' if topic_data['allow_short_answer'] else 'X',
-            required=True,
-            max_length=1
-        )
-        self.add_item(self.allow_short)
-        
-        self.image_url = discord.ui.TextInput(
-            label='5. 대표 이미지 URL (선택사항)',
-            style=discord.TextStyle.short,
-            default=(topic_data.get('image_url', '') or '')[:4000],
-            required=False,
-            max_length=4000
-        )
-        self.add_item(self.image_url)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        topic_text = self.topic.value
-        options_list = [opt.strip() for opt in self.options.value.split(',') if opt.strip()]
-        if len(options_list) < 2:
-            await interaction.response.send_message("옵션은 최소 2개 이상이어야 합니다.", ephemeral=True)
-            return
-            
-        parsed_options = []
-        for opt in options_list:
-            if ":" in opt:
-                name, desc = opt.split(":", 1)
-                parsed_options.append({"name": name.strip(), "desc": desc.strip()})
-            else:
-                parsed_options.append({"name": opt.strip(), "desc": ""})
-
-        is_multiple = self.allow_multiple.value.upper() == 'O'
-        is_short = self.allow_short.value.upper() == 'O'
-        img_val = self.image_url.value.strip() if self.image_url.value else None
-
-        if self.is_queue:
-            await database.update_queued_topic(self.topic_data['id'], topic_text, parsed_options, is_multiple, is_short, img_val)
-        else:
-            await database.update_suggested_topic(self.topic_data['id'], topic_text, parsed_options, is_multiple, is_short, img_val)
-        
-        # update the UI view's internal data
-        self.topic_data['topic'] = topic_text
-        self.topic_data['options'] = parsed_options
-        self.topic_data['allow_multiple'] = is_multiple
-        self.topic_data['allow_short_answer'] = is_short
-        self.topic_data['image_url'] = img_val
-        
-        await interaction.response.edit_message(embed=self.ui_view.get_current_embed(), view=self.ui_view)
-
 
 class TopicPaginationView(discord.ui.View):
     def __init__(self, topics: list, master_cog, active_topic_sessions: dict, user_id: int):
@@ -366,10 +269,22 @@ class TopicPaginationView(discord.ui.View):
             view=self
         )
         
-    @discord.ui.button(label="이 주제 수정", style=discord.ButtonStyle.primary, emoji="✏️")
+    @discord.ui.button(label="이 주제 기획 빌더 시작", style=discord.ButtonStyle.primary, emoji="🛠️", row=1)
     async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         topic = self.topics[self.current_page]
-        await interaction.response.send_modal(EditTopicModal(topic, self))
+        from cogs.survey import SuggestionBuilderView
+        view = SuggestionBuilderView(
+            topic=topic['topic'],
+            master_cog=self.master_cog,
+            user_id=topic['suggested_by'],
+            edit_target_id=topic['id'],
+            existing_options=topic['options'],
+            allow_multiple=topic['allow_multiple'],
+            allow_short=topic['allow_short_answer'],
+            image_url=topic.get('image_url')
+        )
+        embed = view.get_embed()
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
     @discord.ui.button(label="이 주제 거절(삭제)", style=discord.ButtonStyle.danger, emoji="🗑️")
     async def delete_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -582,10 +497,7 @@ class QueuePaginationView(discord.ui.View):
             self.update_buttons()
             await interaction.response.edit_message(embed=self.get_current_embed(), view=self)
         
-    @discord.ui.button(label="이 주제 수정", style=discord.ButtonStyle.primary, emoji="✏️", row=1)
-    async def edit_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        topic = self.topics[self.current_page]
-        await interaction.response.send_modal(EditTopicModal(topic, self, is_queue=True))
+    # 대기열(Queue)에서는 수정하기 버튼을 사용하지 않습니다.
 
     @discord.ui.button(label="주제제시로 반환", style=discord.ButtonStyle.primary, emoji="🔙", row=1)
     async def return_btn(self, interaction: discord.Interaction, button: discord.ui.Button):

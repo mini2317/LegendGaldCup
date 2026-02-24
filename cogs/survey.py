@@ -118,15 +118,17 @@ class EditTopicTitleModal(discord.ui.Modal, title='주제 제목 수정'):
         await interaction.response.edit_message(embed=self.view.get_embed(), view=self.view)
 
 class SuggestionBuilderView(discord.ui.View):
-    def __init__(self, topic: str, master_cog, user_id: int):
+    def __init__(self, topic: str, master_cog, user_id: int, edit_target_id: int = None, existing_options=None, allow_multiple=False, allow_short=False, image_url=None):
         super().__init__(timeout=900) # 15분 타임아웃
         self.topic = topic
         self.master_cog = master_cog
         self.user_id = user_id
-        self.options = []
-        self.allow_multiple = False
-        self.allow_short = False
-        self.image_url = None
+        self.edit_target_id = edit_target_id
+        
+        self.options = existing_options if existing_options else []
+        self.allow_multiple = allow_multiple
+        self.allow_short = allow_short
+        self.image_url = image_url
 
     def get_embed(self) -> discord.Embed:
         embed = discord.Embed(
@@ -243,22 +245,36 @@ class SuggestionBuilderView(discord.ui.View):
         for child in self.children:
             child.disabled = True
             
-        await interaction.response.edit_message(content="⏳ 대기열 서버 스토리지에 데이터를 쓰는 중...", embed=self.get_embed(), view=self)
+        await interaction.response.edit_message(content="⏳ 데이터베이스에 쓰는 중...", embed=self.get_embed(), view=self)
         
-        await database.suggest_topic(
-            self.topic, 
-            self.options, 
-            self.allow_multiple, 
-            self.allow_short, 
-            self.user_id, 
-            self.image_url
-        )
-        
-        await interaction.followup.edit_message(
-            message_id=interaction.message.id,
-            content="🎉 **성공적으로 갈드컵 주제 의견을 제출했습니다!** 3일 뒤 로테이션 때 추첨 및 평가에 반영될 수 있습니다.",
-            view=None
-        )
+        if self.edit_target_id:
+            await database.update_suggested_topic(
+                self.edit_target_id,
+                self.topic,
+                self.options,
+                self.allow_multiple,
+                self.allow_short,
+                self.image_url
+            )
+            await interaction.edit_original_response(
+                content="✅ **기존 주제가 성공적으로 수정 및 저장되었습니다!**\n(심사 메뉴에서 [새로고침]을 눌러 반영된 데이터를 확인하세요.)",
+                embed=None,
+                view=None
+            )
+        else:
+            await database.suggest_topic(
+                self.topic, 
+                self.options, 
+                self.allow_multiple, 
+                self.allow_short, 
+                self.user_id,
+                self.image_url
+            )
+            await interaction.edit_original_response(
+                content="✅ **성공적으로 제안이 서버로 전송되었습니다!**\n(관리자 심사를 거쳐 채택 시 실제 투표에 올라갑니다.)", 
+                embed=None, 
+                view=None
+            )
 
 
 class RefinedTopicView(discord.ui.View):
@@ -387,6 +403,7 @@ class VoteSelectView(discord.ui.View):
             select_options.append(discord.SelectOption(label="기타 (직접입력)", value="##SHORT_ANSWER##"))
             
         select = discord.ui.Select(
+            custom_id=f"vote_select_{survey_id}",
             placeholder="투표할 옵션을 선택하세요 (다중선택 가능)" if allow_multiple else "투표할 옵션을 선택하세요",
             min_values=1,
             max_values=len(select_options) if allow_multiple else 1,
@@ -424,6 +441,23 @@ class VoteSelectView(discord.ui.View):
 class Survey(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        # 봇 재시작 후에도 버튼들이 정상 작동하도록, 현재 진행 중인 옵션의 Persistent View를 등록
+        survey_dict = await database.get_active_survey()
+        if survey_dict:
+            import json
+            options = survey_dict['options']
+            if isinstance(options, str):
+                options = json.loads(options)
+            view = VoteSelectView(
+                survey_dict['id'], 
+                options, 
+                bool(survey_dict.get('allow_short_answer', False)), 
+                bool(survey_dict.get('allow_multiple', False))
+            )
+            self.bot.add_view(view)
 
     @app_commands.command(name="주제제시", description="재미있는 갈드컵 다음 주제를 제시합니다.")
     async def suggest_topic(self, interaction: discord.Interaction):
