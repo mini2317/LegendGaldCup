@@ -233,8 +233,76 @@ class Master(commands.Cog):
             if now - start_time >= timedelta(hours=72):
                 logger.info("72 hours passed since last survey started. Rotating.")
                 await self.process_survey_rotation()
+                
+            # Check for Daily Opinion Broadcast
+            await self.check_daily_opinion(active_survey)
+            
         except Exception as e:
             logger.error(f"Error in survey_loop time check: {e}")
+
+    async def check_daily_opinion(self, active_survey):
+        from datetime import datetime, timezone, timedelta
+        import database
+        now_kst = datetime.now(timezone.utc) + timedelta(hours=9)
+        current_date_str = now_kst.strftime("%Y-%m-%d")
+        
+        last_daily_date = await database.get_global_setting("last_daily_opinion_date")
+        
+        # If it's a new day and it's past midnight KST
+        if last_daily_date != current_date_str:
+            logger.info(f"Triggering daily opinion broadcast for {current_date_str}")
+            await database.set_global_setting("last_daily_opinion_date", current_date_str)
+            
+            # Fetch recent votes
+            recent_votes = await database.get_recent_votes_for_opinion(active_survey['id'], hours=24)
+            if not recent_votes or len(recent_votes) < 3:
+                logger.info("Not enough opinions for daily broadcast.")
+                return
+                
+            opinions_text = "\n".join([f"[{v['selected_option']}] {v['opinion']}" for v in recent_votes if v['opinion']])
+            
+            system_prompt = self.prompts.get("system", "")
+            pick_prompt = self.prompts.get("pick_daily_opinion", "")
+            
+            if not pick_prompt:
+                return
+                
+            prompt = f"{system_prompt}\n\n{pick_prompt.replace('{topic}', active_survey['topic']).replace('{opinions}', opinions_text)}"
+            
+            try:
+                response = await self.model.generate_content_async(prompt)
+                text = response.text.strip()
+                if text.startswith("```json"): text = text[7:]
+                if text.startswith("```"): text = text[3:]
+                if text.endswith("```"): text = text[:-3]
+                
+                import json
+                result = json.loads(text.strip())
+                selected_opinion = result.get('opinion')
+                selected_option = result.get('selected_option')
+                reason = result.get('reason')
+                
+                if selected_opinion:
+                    embed = discord.Embed(
+                        title="🌟 오늘의 레전드 갈드컵 명언 (박제)",
+                        description=f"지난 24시간 동안 가장 뜨거웠던 의견을 AI가 직접 선정했습니다!\n\n**[{selected_option}]**\n> \"{selected_opinion}\"\n\n💡 **AI 선정 이유:**\n{reason}",
+                        color=discord.Color.gold()
+                    )
+                    from cogs.survey import DailyOpinionView
+                    view = DailyOpinionView()
+                    
+                    channels = await database.get_all_active_announcement_channels()
+                    for guild_id, channel_id in channels:
+                        channel = self.bot.get_channel(channel_id)
+                        if channel:
+                            try:
+                                await channel.send(embed=embed, view=view)
+                            except discord.Forbidden:
+                                pass
+            except Exception as e:
+                logger.error(f"Error generating daily opinion: {e}")
+                # Rollback date so it can try again later
+                await database.set_global_setting("last_daily_opinion_date", last_daily_date if last_daily_date else "")
 
     @survey_loop.before_loop
     async def before_survey_loop(self):

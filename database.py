@@ -102,6 +102,24 @@ async def init_db():
             )
         ''')
         
+        # 일일 명언(박제) 투표 테이블
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS daily_opinion_votes (
+                message_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                is_like INTEGER NOT NULL,
+                PRIMARY KEY (message_id, user_id)
+            )
+        ''')
+
+        # 글로벌 설정 저장소 테이블
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS global_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
+        
         await db.commit()
         logger.info("Database initialized successfully.")
 
@@ -130,18 +148,43 @@ async def set_announcement_enabled(guild_id: int, enabled: int):
         ''', (enabled, guild_id))
         await db.commit()
 
-async def check_and_set_welcome(guild_id: int) -> bool:
-    """Check if the welcome message was shown. If not, mark it as shown and return True. Otherwise return False."""
+async def get_global_setting(key: str, default: str = None) -> str:
     async with aiosqlite.connect(DB_FILE) as db:
-        db.row_factory = aiosqlite.Row
-        async with db.execute('SELECT welcome_shown FROM servers WHERE guild_id = ?', (guild_id,)) as cursor:
+        async with db.execute('SELECT value FROM global_settings WHERE key = ?', (key,)) as cursor:
             row = await cursor.fetchone()
-            if row and row['welcome_shown'] == 1:
-                return False
+            return row[0] if row else default
+
+async def set_global_setting(key: str, value: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('''
+            INSERT INTO global_settings (key, value)
+            VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value=excluded.value
+        ''', (key, value))
+        await db.commit()
+
+async def get_daily_opinion_votes(message_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute('SELECT SUM(is_like) as likes, COUNT(*) - SUM(is_like) as dislikes FROM daily_opinion_votes WHERE message_id = ?', (message_id,)) as cursor:
+            row = await cursor.fetchone()
+            likes = row[0] or 0
+            dislikes = row[1] or 0
+            return likes, dislikes
+
+async def vote_daily_opinion(message_id: int, user_id: int, is_like: int) -> bool:
+    """Returns True if the vote caused a change, False if it was the same vote."""
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute('SELECT is_like FROM daily_opinion_votes WHERE message_id = ? AND user_id = ?', (message_id, user_id)) as cursor:
+            row = await cursor.fetchone()
+            if row:
+                if row[0] == is_like:
+                    return False # No change
+                else:
+                    await db.execute('UPDATE daily_opinion_votes SET is_like = ? WHERE message_id = ? AND user_id = ?', (is_like, message_id, user_id))
             else:
-                await db.execute('UPDATE servers SET welcome_shown = 1 WHERE guild_id = ?', (guild_id,))
-                await db.commit()
-                return True
+                await db.execute('INSERT INTO daily_opinion_votes (message_id, user_id, is_like) VALUES (?, ?, ?)', (message_id, user_id, is_like))
+        await db.commit()
+        return True
 
 async def get_all_active_announcement_channels():
     async with aiosqlite.connect(DB_FILE) as db:
@@ -407,14 +450,20 @@ async def return_queue_to_suggested(topic_id: int):
         db.row_factory = aiosqlite.Row
         async with db.execute('SELECT * FROM topic_queue WHERE id = ?', (topic_id,)) as cursor:
             row = await cursor.fetchone()
-            
         if row:
+            # Add to suggested_topics
             await db.execute('''
-                INSERT INTO suggested_topics (topic, options, allow_short_answer, suggested_by, image_url, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (row['topic'], row['options'], row['allow_short_answer'], row['suggested_by'], row['image_url'], row['created_at']))
+                INSERT INTO suggested_topics (topic, options, allow_short_answer, suggested_by, image_url)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (row['topic'], row['options'], row['allow_short_answer'], row['suggested_by'], row['image_url']))
             
+            # Delete from queue
             await db.execute('DELETE FROM topic_queue WHERE id = ?', (topic_id,))
             await db.commit()
 
-
+async def get_recent_votes_for_opinion(survey_id: int, hours: int = 24):
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute(f"SELECT selected_option, opinion FROM votes WHERE survey_id = ? AND opinion IS NOT NULL AND opinion != '' AND updated_at >= datetime('now', '-{hours} hours')", (survey_id,)) as cursor:
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]

@@ -491,6 +491,8 @@ class Survey(commands.Cog):
                 bool(survey_dict.get('allow_short_answer', False))
             )
             self.bot.add_view(view)
+            
+        self.bot.add_view(DailyOpinionView())
 
     @app_commands.command(name="주제제시", description="재미있는 갈드컵 다음 주제를 제시합니다.")
     async def suggest_topic(self, interaction: discord.Interaction):
@@ -745,6 +747,37 @@ class SurveyHistoryPaginationView(discord.ui.View):
         embed.description = desc
         embed.set_footer(text=f"페이지 {self.current_page + 1} / {self.max_pages}")
         return embed
+
+class DailyOpinionView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        
+    @discord.ui.button(label="👍 좋아요 (0)", style=discord.ButtonStyle.secondary, custom_id="daily_like_btn")
+    async def like_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_vote(interaction, button, 1)
+
+    @discord.ui.button(label="👎 싫어요 (0)", style=discord.ButtonStyle.secondary, custom_id="daily_dislike_btn")
+    async def dislike_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.handle_vote(interaction, button, 0)
+        
+    async def handle_vote(self, interaction: discord.Interaction, button: discord.ui.Button, is_like: int):
+        message_id = interaction.message.id
+        from database import vote_daily_opinion, get_daily_opinion_votes
+        
+        changed = await vote_daily_opinion(message_id, interaction.user.id, is_like)
+        
+        if changed:
+            likes, dislikes = await get_daily_opinion_votes(message_id)
+            
+            for child in self.children:
+                if child.custom_id == "daily_like_btn":
+                    child.label = f"👍 좋아요 ({likes})"
+                elif child.custom_id == "daily_dislike_btn":
+                    child.label = f"👎 싫어요 ({dislikes})"
+                    
+            await interaction.response.edit_message(view=self)
+        else:
+            await interaction.response.send_message("❌ 이미 해당 코멘트에 같은 평가를 남기셨습니다.", ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Survey(bot))
