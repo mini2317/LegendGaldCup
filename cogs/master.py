@@ -246,9 +246,13 @@ class Master(commands.Cog):
         now_kst = datetime.now(timezone.utc) + timedelta(hours=9)
         current_date_str = now_kst.strftime("%Y-%m-%d")
         
+        # 현재 시간이 0시(자정~01시 사이)인지 확인
+        if now_kst.hour != 0:
+            return
+            
         last_daily_date = await database.get_global_setting("last_daily_opinion_date")
         
-        # If it's a new day and it's past midnight KST
+        # If it's a new day and we haven't sent today's opinion yet
         if last_daily_date != current_date_str:
             logger.info(f"Triggering daily opinion broadcast for {current_date_str}")
             await database.set_global_setting("last_daily_opinion_date", current_date_str)
@@ -284,10 +288,11 @@ class Master(commands.Cog):
                 
                 if selected_opinion:
                     embed = discord.Embed(
-                        title="🌟 오늘의 레전드 갈드컵 명언 (박제)",
+                        title="🌟 오늘의 레전드 갈드컵 의견",
                         description=f"지난 24시간 동안 가장 뜨거웠던 의견을 AI가 직접 선정했습니다!\n\n**[{selected_option}]**\n> \"{selected_opinion}\"\n\n💡 **AI 선정 이유:**\n{reason}",
                         color=discord.Color.gold()
                     )
+                    embed.set_footer(text=f"ID: {current_date_str}")
                     from cogs.survey import DailyOpinionView
                     view = DailyOpinionView()
                     

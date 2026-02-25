@@ -105,12 +105,16 @@ async def init_db():
         # 일일 명언(박제) 투표 테이블
         await db.execute('''
             CREATE TABLE IF NOT EXISTS daily_opinion_votes (
-                message_id INTEGER NOT NULL,
+                opinion_id TEXT NOT NULL,
                 user_id INTEGER NOT NULL,
                 is_like INTEGER NOT NULL,
-                PRIMARY KEY (message_id, user_id)
+                PRIMARY KEY (opinion_id, user_id)
             )
         ''')
+        try:
+            await db.execute('ALTER TABLE daily_opinion_votes RENAME COLUMN message_id TO opinion_id')
+        except Exception:
+            pass
 
         # 글로벌 설정 저장소 테이블
         await db.execute('''
@@ -163,26 +167,26 @@ async def set_global_setting(key: str, value: str):
         ''', (key, value))
         await db.commit()
 
-async def get_daily_opinion_votes(message_id: int):
+async def get_daily_opinion_votes(opinion_id: str):
     async with aiosqlite.connect(DB_FILE) as db:
-        async with db.execute('SELECT SUM(is_like) as likes, COUNT(*) - SUM(is_like) as dislikes FROM daily_opinion_votes WHERE message_id = ?', (message_id,)) as cursor:
+        async with db.execute('SELECT SUM(is_like) as likes, COUNT(*) - SUM(is_like) as dislikes FROM daily_opinion_votes WHERE opinion_id = ?', (opinion_id,)) as cursor:
             row = await cursor.fetchone()
             likes = row[0] or 0
             dislikes = row[1] or 0
             return likes, dislikes
 
-async def vote_daily_opinion(message_id: int, user_id: int, is_like: int) -> bool:
+async def vote_daily_opinion(opinion_id: str, user_id: int, is_like: int) -> bool:
     """Returns True if the vote caused a change, False if it was the same vote."""
     async with aiosqlite.connect(DB_FILE) as db:
-        async with db.execute('SELECT is_like FROM daily_opinion_votes WHERE message_id = ? AND user_id = ?', (message_id, user_id)) as cursor:
+        async with db.execute('SELECT is_like FROM daily_opinion_votes WHERE opinion_id = ? AND user_id = ?', (opinion_id, user_id)) as cursor:
             row = await cursor.fetchone()
             if row:
                 if row[0] == is_like:
                     return False # No change
                 else:
-                    await db.execute('UPDATE daily_opinion_votes SET is_like = ? WHERE message_id = ? AND user_id = ?', (is_like, message_id, user_id))
+                    await db.execute('UPDATE daily_opinion_votes SET is_like = ? WHERE opinion_id = ? AND user_id = ?', (is_like, opinion_id, user_id))
             else:
-                await db.execute('INSERT INTO daily_opinion_votes (message_id, user_id, is_like) VALUES (?, ?, ?)', (message_id, user_id, is_like))
+                await db.execute('INSERT INTO daily_opinion_votes (opinion_id, user_id, is_like) VALUES (?, ?, ?)', (opinion_id, user_id, is_like))
         await db.commit()
         return True
 

@@ -761,13 +761,18 @@ class DailyOpinionView(discord.ui.View):
         await self.handle_vote(interaction, button, 0)
         
     async def handle_vote(self, interaction: discord.Interaction, button: discord.ui.Button, is_like: int):
-        message_id = interaction.message.id
+        try:
+            opinion_id = interaction.message.embeds[0].footer.text.replace("ID: ", "")
+        except Exception:
+            await interaction.response.send_message("❌ 일일 명언 정보를 찾을 수 없습니다.", ephemeral=True)
+            return
+            
         from database import vote_daily_opinion, get_daily_opinion_votes
         
-        changed = await vote_daily_opinion(message_id, interaction.user.id, is_like)
+        changed = await vote_daily_opinion(opinion_id, interaction.user.id, is_like)
         
         if changed:
-            likes, dislikes = await get_daily_opinion_votes(message_id)
+            likes, dislikes = await get_daily_opinion_votes(opinion_id)
             
             for child in self.children:
                 if child.custom_id == "daily_like_btn":
