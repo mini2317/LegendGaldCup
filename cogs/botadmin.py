@@ -617,6 +617,25 @@ class BotAdmin(commands.Cog):
             
         await ctx.send(embed=embed)
 
+    @commands.command(name="오늘의의견_강제송출", description="[관리자 전용] 즉시 오늘의 의견을 탐색하여 전체 서버에 송출합니다.")
+    async def force_daily_opinion(self, ctx: commands.Context):
+        if not await self.check_is_bot_admin(ctx):
+            return
+            
+        await ctx.send("⏳ 오늘의 의견 강제 송출 명령을 수행 중입니다...")
+        master_cog = self.bot.get_cog('Master')
+        if not master_cog:
+            await ctx.send("❌ 마스터 모듈을 찾을 수 없습니다.")
+            return
+            
+        active_survey = await database.get_active_survey()
+        if not active_survey:
+            await ctx.send("❌ 현재 진행 중인 갈드컵 주제가 없어 송출을 취소합니다.")
+            return
+            
+        await master_cog.check_daily_opinion(active_survey, force=True)
+        await ctx.send("✅ 오늘의 의견 강제 송출 명령을 수행했습니다.")
+
     @commands.command(name="AI주제충전", description="[관리자 전용] 대기열에 AI가 생성한 주제를 지정한 개수(1~5개)만큼 채워넣습니다.")
     async def charge_ai_topics(self, ctx: commands.Context, count: int = 1):
         if not await self.check_is_bot_admin(ctx):

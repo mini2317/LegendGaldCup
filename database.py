@@ -64,9 +64,14 @@ async def init_db():
                 selected_option TEXT NOT NULL,
                 opinion TEXT,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_daily_picked INTEGER DEFAULT 0,
                 UNIQUE(survey_id, user_id)
             )
         ''')
+        try:
+            await db.execute('ALTER TABLE votes ADD COLUMN is_daily_picked INTEGER DEFAULT 0')
+        except Exception:
+            pass
         
         # 유저가 제안한 주제 테이블
         await db.execute('''
@@ -128,6 +133,29 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS global_settings (
                 key TEXT PRIMARY KEY,
                 value TEXT
+            )
+        ''')
+        
+        # 일일 의견(박제) 송출 내역 테이블
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS daily_opinion_history (
+                date_str TEXT PRIMARY KEY,
+                survey_id INTEGER NOT NULL,
+                opinion_id INTEGER NOT NULL,
+                broadcast_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                midpoint_sent INTEGER DEFAULT 0,
+                final_sent INTEGER DEFAULT 0
+            )
+        ''')
+        
+        # 일일 의견(박제) 메시지 채널 매핑 테이블
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS daily_opinion_messages (
+                date_str TEXT NOT NULL,
+                guild_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                PRIMARY KEY (date_str, guild_id)
             )
         ''')
         
@@ -197,6 +225,54 @@ async def get_daily_opinion_votes(opinion_id: str):
             likes = row[0] or 0
             dislikes = row[1] or 0
             return likes, dislikes
+
+async def record_daily_broadcast(date_str: str, survey_id: int, opinion_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('''
+            INSERT INTO daily_opinion_history (date_str, survey_id, opinion_id, broadcast_time)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (date_str, survey_id, opinion_id))
+        await db.commit()
+
+async def record_daily_broadcast_message(date_str: str, guild_id: int, channel_id: int, message_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('''
+            INSERT INTO daily_opinion_messages (date_str, guild_id, channel_id, message_id)
+            VALUES (?, ?, ?, ?)
+        ''', (date_str, guild_id, channel_id, message_id))
+        await db.commit()
+
+async def get_daily_broadcast_messages(date_str: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute('SELECT guild_id, channel_id, message_id FROM daily_opinion_messages WHERE date_str = ?', (date_str,)) as cursor:
+            return [{'guild_id': r[0], 'channel_id': r[1], 'message_id': r[2]} for r in await cursor.fetchall()]
+
+async def get_daily_opinion_history(date_str: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute('SELECT * FROM daily_opinion_history WHERE date_str = ?', (date_str,)) as cursor:
+            row = await cursor.fetchone()
+            return dict(row) if row else None
+
+async def get_pending_midpoint_broadcasts():
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM daily_opinion_history WHERE midpoint_sent = 0 AND broadcast_time <= datetime('now', '-1 minute')") as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+async def get_pending_final_broadcasts():
+    async with aiosqlite.connect(DB_FILE) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM daily_opinion_history WHERE final_sent = 0 AND broadcast_time <= datetime('now', '-2 minutes')") as cursor:
+            return [dict(r) for r in await cursor.fetchall()]
+
+async def mark_daily_broadcast_sent(date_str: str, sent_type: str):
+    async with aiosqlite.connect(DB_FILE) as db:
+        if sent_type == 'midpoint':
+            await db.execute('UPDATE daily_opinion_history SET midpoint_sent = 1 WHERE date_str = ?', (date_str,))
+        elif sent_type == 'final':
+            await db.execute('UPDATE daily_opinion_history SET final_sent = 1 WHERE date_str = ?', (date_str,))
+        await db.commit()
 
 async def vote_daily_opinion(opinion_id: str, user_id: int, is_like: int) -> bool:
     """Returns True if the vote caused a change, False if it was the same vote."""
@@ -497,6 +573,11 @@ async def return_queue_to_suggested(topic_id: int):
 async def get_recent_votes_for_opinion(survey_id: int, hours: int = 24):
     async with aiosqlite.connect(DB_FILE) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute(f"SELECT selected_option, opinion FROM votes WHERE survey_id = ? AND opinion IS NOT NULL AND opinion != '' AND updated_at >= datetime('now', '-{hours} hours')", (survey_id,)) as cursor:
+        async with db.execute(f"SELECT id, selected_option, opinion FROM votes WHERE survey_id = ? AND opinion IS NOT NULL AND opinion != '' AND is_daily_picked = 0 AND updated_at >= datetime('now', '-{hours} hours')", (survey_id,)) as cursor:
             rows = await cursor.fetchall()
             return [dict(row) for row in rows]
+
+async def mark_opinion_as_picked(vote_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        await db.execute('UPDATE votes SET is_daily_picked = 1 WHERE id = ?', (vote_id,))
+        await db.commit()

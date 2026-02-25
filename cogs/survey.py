@@ -767,9 +767,15 @@ class DailyOpinionView(discord.ui.View):
             await interaction.response.send_message("❌ 일일 의견 정보를 찾을 수 없습니다.", ephemeral=True)
             return
             
-        from database import vote_daily_opinion, get_daily_opinion_votes, get_active_survey, has_user_voted
+        from database import vote_daily_opinion, get_daily_opinion_votes, get_active_survey, has_user_voted, get_daily_opinion_history
         
-        # 선행 조건: 현재 진행 중인 주제에 투표했는지 확인
+        # 선행 조건 1: 투표 마감 체크 (2분 경과 여부)
+        history = await get_daily_opinion_history(opinion_id)
+        if history and history.get('final_sent', 0) == 1:
+            await interaction.response.send_message("⏳ **이 오늘의 의견에 대한 투표가 마감되었습니다 (송출 후 2분 경과)!**\n내일 오후 1시에 새로운 핫한 의견과 함께 다시 만나요!", ephemeral=True)
+            return
+            
+        # 선행 조건 2: 현재 진행 중인 주제에 투표했는지 확인
         active_survey = await get_active_survey()
         if active_survey:
             voted = await has_user_voted(active_survey['id'], interaction.user.id)

@@ -237,86 +237,175 @@ class Master(commands.Cog):
             # Check for Daily Opinion Broadcast
             await self.check_daily_opinion(active_survey)
             
+            # Check for pending Midpoint and Final daily opinion broadcasts
+            await self.check_pending_daily_broadcasts()
+            
         except Exception as e:
             logger.error(f"Error in survey_loop time check: {e}")
 
-    async def check_daily_opinion(self, active_survey):
+    async def check_daily_opinion(self, active_survey, force=False):
         from datetime import datetime, timezone, timedelta
         import database
         now_kst = datetime.now(timezone.utc) + timedelta(hours=9)
         current_date_str = now_kst.strftime("%Y-%m-%d")
         
-        # 현재 시간이 0시(자정~01시 사이)인지 확인
-        if now_kst.hour != 0:
-            return
+        if force:
+            current_date_str += f"_force_{now_kst.strftime('%H%M%S')}"
+
+        if not force:
+            # 현재 시간이 13시(오후 1시~2시 사이)인지 확인
+            if now_kst.hour != 13:
+                return
+                
+            last_daily_date = await database.get_global_setting("last_daily_opinion_date")
             
-        last_daily_date = await database.get_global_setting("last_daily_opinion_date")
-        
-        # If it's a new day and we haven't sent today's opinion yet
-        if last_daily_date != current_date_str:
-            logger.info(f"Triggering daily opinion broadcast for {current_date_str}")
+            # If it's a new day and we haven't sent today's opinion yet
+            if last_daily_date == current_date_str:
+                return
+
+        logger.info(f"Triggering daily opinion broadcast for {current_date_str}")
+        if not force:
             await database.set_global_setting("last_daily_opinion_date", current_date_str)
             
-            # Fetch recent votes
-            recent_votes = await database.get_recent_votes_for_opinion(active_survey['id'], hours=24)
-            if not recent_votes or len(recent_votes) < 3:
-                logger.info("Not enough opinions for daily broadcast.")
-                return
-                
-            opinions_text = "\n".join([f"[{v['selected_option']}] {v['opinion']}" for v in recent_votes if v['opinion']])
+        # Fetch recent votes
+        recent_votes = await database.get_recent_votes_for_opinion(active_survey['id'], hours=24 if not force else 9999)
+        if not recent_votes:
+            logger.info("Not enough opinions for daily broadcast.")
+            return
             
-            system_prompt = self.prompts.get("system", "")
-            pick_prompt = self.prompts.get("pick_daily_opinion", "")
+        opinions_text = "\n".join([f"[{v['selected_option']}] {v['opinion']}" for v in recent_votes if v['opinion']])
+        
+        system_prompt = self.prompts.get("system", "")
+        pick_prompt = self.prompts.get("pick_daily_opinion", "")
+        
+        if not pick_prompt:
+            return
             
-            if not pick_prompt:
-                return
-                
-            prompt = f"{system_prompt}\n\n{pick_prompt.replace('{topic}', active_survey['topic']).replace('{opinions}', opinions_text)}"
+        prompt = f"{system_prompt}\n\n{pick_prompt.replace('{topic}', active_survey['topic']).replace('{opinions}', opinions_text)}"
             
-            try:
-                response = await self.model.generate_content_async(prompt)
-                text = response.text.strip()
-                if text.startswith("```json"): text = text[7:]
-                if text.startswith("```"): text = text[3:]
-                if text.endswith("```"): text = text[:-3]
-                
-                import json
-                result = json.loads(text.strip())
-                selected_opinion = result.get('opinion')
-                selected_option = result.get('selected_option')
-                reason = result.get('reason')
-                
-                if selected_opinion:
-                    from cogs.survey import DailyOpinionView
-                    view = DailyOpinionView()
+        try:
+            response = await self.model.generate_content_async(prompt)
+            text = response.text.strip()
+            if text.startswith("```json"): text = text[7:]
+            if text.startswith("```"): text = text[3:]
+            if text.endswith("```"): text = text[:-3]
+            
+            import json
+            result = json.loads(text.strip())
+            selected_opinion = result.get('opinion')
+            selected_option = result.get('selected_option')
+            reason = result.get('reason')
+            
+            if selected_opinion:
+                # 마킹 처리: 중복 선정 방지
+                matched_vote_id = None
+                for v in recent_votes:
+                    if v['opinion'] == selected_opinion:
+                        matched_vote_id = v['id']
+                        break
+                        
+                if matched_vote_id:
+                    await database.mark_opinion_as_picked(matched_vote_id)
                     
-                    channels = await database.get_all_active_announcement_channels()
-                    for guild_id, channel_id in channels:
-                        channel = self.bot.get_channel(channel_id)
-                        if channel:
-                            embed = discord.Embed(
-                                title="🌟 레전드 갈드컵 오늘의 의견",
-                                description="지난 24시간 동안 가장 뜨거웠던 의견을 AI가 직접 선정했습니다!",
-                                color=discord.Color.gold()
-                            )
-                            embed.add_field(name=f"🗣️ [{selected_option}]", value=f"> \"{selected_opinion}\"", inline=False)
-                            embed.add_field(name="💡 AI 선정 이유", value=reason, inline=False)
+                await database.record_daily_broadcast(current_date_str, active_survey['id'], matched_vote_id if matched_vote_id else 0)
+                
+                from cogs.survey import DailyOpinionView
+                view = DailyOpinionView()
+                
+                channels = await database.get_all_active_announcement_channels()
+                for guild_id, channel_id in channels:
+                    channel = self.bot.get_channel(channel_id)
+                    if channel:
+                        embed = discord.Embed(
+                            title="🌟 레전드 갈드컵 오늘의 의견",
+                            description="지난 24시간 동안 가장 뜨거웠던 의견을 AI가 직접 선정했습니다!",
+                            color=discord.Color.gold()
+                        )
+                        embed.add_field(name=f"🗣️ [{selected_option}]", value=f"> \"{selected_opinion}\"", inline=False)
+                        embed.add_field(name="💡 AI 선정 이유", value=reason, inline=False)
+                        
+                        survey_msg_id = await database.get_current_survey_msg_id(guild_id)
+                        if survey_msg_id:
+                            jump_url = f"https://discord.com/channels/{guild_id}/{channel_id}/{survey_msg_id}"
+                            embed.add_field(name="🔗 설문 확인하기", value=f"[📝 본 투표소로 이동하기]({jump_url})", inline=False)
                             
-                            survey_msg_id = await database.get_current_survey_msg_id(guild_id)
-                            if survey_msg_id:
-                                jump_url = f"https://discord.com/channels/{guild_id}/{channel_id}/{survey_msg_id}"
-                                embed.add_field(name="🔗 설문 확인하기", value=f"[📝 본 투표소로 이동하기]({jump_url})", inline=False)
-                                
-                            embed.set_footer(text=f"ID: {current_date_str}")
-                            
-                            try:
-                                await channel.send(embed=embed, view=view)
-                            except discord.Forbidden:
-                                pass
-            except Exception as e:
-                logger.error(f"Error generating daily opinion: {e}")
-                # Rollback date so it can try again later
-                await database.set_global_setting("last_daily_opinion_date", last_daily_date if last_daily_date else "")
+                        embed.set_footer(text=f"ID: {current_date_str}")
+                        
+                        try:
+                            msg = await channel.send(embed=embed, view=view)
+                            await database.record_daily_broadcast_message(current_date_str, guild_id, channel_id, msg.id)
+                        except discord.Forbidden:
+                            pass
+        except Exception as e:
+            logger.error(f"Error generating daily opinion: {e}")
+            await database.set_global_setting("last_daily_opinion_date", last_daily_date if last_daily_date else "")
+
+    async def check_pending_daily_broadcasts(self):
+        import database
+        midpoint_broadcasts = await database.get_pending_midpoint_broadcasts()
+        for b in midpoint_broadcasts:
+            await self.send_daily_opinion_followup(b, "midpoint")
+            await database.mark_daily_broadcast_sent(b['date_str'], 'midpoint')
+            
+        final_broadcasts = await database.get_pending_final_broadcasts()
+        for b in final_broadcasts:
+            await self.send_daily_opinion_followup(b, "final")
+            await database.mark_daily_broadcast_sent(b['date_str'], 'final')
+            
+    async def send_daily_opinion_followup(self, broadcast_record: dict, b_type: str):
+        import database
+        import discord
+        date_str = broadcast_record['date_str']
+        
+        likes, dislikes = await database.get_daily_opinion_votes(date_str)
+        
+        if b_type == "midpoint":
+            title = f"📊 [중간 집계] 오늘의 의견 여론조사 현황"
+            desc = "현재까지 집계된 '오늘의 의견'에 대한 찬반 현황입니다!"
+            color = discord.Color.blue()
+        else:
+            title = f"🏁 [최종 마감] 오늘의 의견 여론조사 (2분 경과)"
+            desc = "오늘의 의견 투표가 마감되었습니다! 최종 찬반 현황을 확인해주세요."
+            color = discord.Color.purple()
+            
+        embed = discord.Embed(
+            title=title,
+            description=desc,
+            color=color
+        )
+        embed.add_field(name="👍 좋아요", value=f"**{likes}**표", inline=True)
+        embed.add_field(name="👎 싫어요", value=f"**{dislikes}**표", inline=True)
+        
+        channels = await database.get_all_active_announcement_channels()
+        broadcast_msgs = await database.get_daily_broadcast_messages(date_str)
+        bm_dict = {m['guild_id']: m['message_id'] for m in broadcast_msgs}
+        
+        for guild_id, channel_id in channels:
+            channel = self.bot.get_channel(channel_id)
+            if not channel:
+                continue
+                
+            local_embed = embed.copy()
+            
+            # Jump URLs
+            survey_msg_id = await database.get_current_survey_msg_id(guild_id)
+            links = []
+            if survey_msg_id:
+                jump_url1 = f"https://discord.com/channels/{guild_id}/{channel_id}/{survey_msg_id}"
+                links.append(f"[📝 본 투표소로 이동하기]({jump_url1})")
+                
+            daily_msg_id = bm_dict.get(guild_id)
+            if daily_msg_id:
+                jump_url2 = f"https://discord.com/channels/{guild_id}/{channel_id}/{daily_msg_id}"
+                links.append(f"[🌟 오늘의 의견(박제) 보러가기]({jump_url2})")
+                
+            if links:
+                local_embed.add_field(name="🔗 확인하기", value="\n".join(links), inline=False)
+                
+            try:
+                await channel.send(embed=local_embed)
+            except Exception:
+                pass
 
     @survey_loop.before_loop
     async def before_survey_loop(self):
