@@ -259,12 +259,11 @@ class Master(commands.Cog):
                 options_counts[opt_name] = 0
                 
             for v in votes:
-                chosen = [c.strip() for c in v['selected_option'].split(',')]
-                for c in chosen:
-                    if c in options_counts:
-                        options_counts[c] += 1
-                    else:
-                        options_counts[c] = 1
+                c = v['selected_option'].strip()
+                if c in options_counts:
+                    options_counts[c] += 1
+                else:
+                    options_counts[c] = 1
 
             # Prepare stats string
             stats_str = f"총 참여인원: {total_votes_users}명\n"
@@ -372,7 +371,6 @@ class Master(commands.Cog):
                             {"name": "평생 여름", "desc": "매일매일 폭염과 모기와 싸우며 에어컨 없이 살지 못하기"}, 
                             {"name": "평생 겨울", "desc": "매일매일 혹한과 싸우며 꽁꽁 얼어붙고 난방비 걱정하기"}
                         ],
-                        "allow_multiple": False,
                         "allow_short_answer": False,
                         "image_prompt": "A dramatic clash between blazing hot summer sun and freezing winter blizzard, split screen"
                     }
@@ -398,7 +396,6 @@ class Master(commands.Cog):
         new_survey_id = await database.create_survey(
             topic=new_topic_data['topic'], 
             options=new_topic_data['options'], 
-            allow_multiple=new_topic_data.get('allow_multiple', False), 
             allow_short_answer=new_topic_data.get('allow_short_answer', False),
             image_url=image_url
         )
@@ -479,8 +476,7 @@ class Master(commands.Cog):
         view = VoteSelectView(
             survey_id, 
             options, 
-            bool(new_topic_data.get('allow_short_answer', False)), 
-            bool(new_topic_data.get('allow_multiple', False))
+            bool(new_topic_data.get('allow_short_answer', False))
         )
         
         # 이전 메시지 고정 해제 및 버튼 제거 (bot 메시지만 추출)

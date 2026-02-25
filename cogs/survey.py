@@ -118,7 +118,7 @@ class EditTopicTitleModal(discord.ui.Modal, title='주제 제목 수정'):
         await interaction.response.edit_message(embed=self.view.get_embed(), view=self.view)
 
 class SuggestionBuilderView(discord.ui.View):
-    def __init__(self, topic: str, master_cog, user_id: int, edit_target_id: int = None, existing_options=None, allow_multiple=False, allow_short=False, image_url=None):
+    def __init__(self, topic: str, master_cog, user_id: int, edit_target_id: int = None, existing_options=None, allow_short=False, image_url=None):
         super().__init__(timeout=900) # 15분 타임아웃
         self.topic = topic
         self.master_cog = master_cog
@@ -126,7 +126,6 @@ class SuggestionBuilderView(discord.ui.View):
         self.edit_target_id = edit_target_id
         
         self.options = existing_options if existing_options else []
-        self.allow_multiple = allow_multiple
         self.allow_short = allow_short
         self.image_url = image_url
 
@@ -148,7 +147,6 @@ class SuggestionBuilderView(discord.ui.View):
         else:
             embed.add_field(name="현재 추가된 선택지", value="아직 선택지가 없습니다. `➕ 옵션 추가` 버튼을 눌러주세요.", inline=False)
 
-        embed.add_field(name="🔄 중복 투표", value="[O] 허용" if self.allow_multiple else "[X] 불가", inline=True)
         embed.add_field(name="📝 단답형 허용", value="[O] 허용" if self.allow_short else "[X] 불가", inline=True)
         
         if self.image_url:
@@ -187,11 +185,6 @@ class SuggestionBuilderView(discord.ui.View):
         modal = EditTopicTitleModal(self)
         modal.topic_title.default = self.topic
         await interaction.response.send_modal(modal)
-
-    @discord.ui.button(label="중복 투표", style=discord.ButtonStyle.primary, emoji="🔄", row=1)
-    async def toggle_multiple_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.allow_multiple = not self.allow_multiple
-        await interaction.response.edit_message(embed=self.get_embed(), view=self)
 
     @discord.ui.button(label="단답형 허용", style=discord.ButtonStyle.primary, emoji="📝", row=1)
     async def toggle_short_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -252,7 +245,6 @@ class SuggestionBuilderView(discord.ui.View):
                 self.edit_target_id,
                 self.topic,
                 self.options,
-                self.allow_multiple,
                 self.allow_short,
                 self.image_url
             )
@@ -265,7 +257,6 @@ class SuggestionBuilderView(discord.ui.View):
             await database.suggest_topic(
                 self.topic, 
                 self.options, 
-                self.allow_multiple, 
                 self.allow_short, 
                 self.user_id,
                 self.image_url
@@ -381,61 +372,58 @@ class VoteShortAnswerModal(discord.ui.Modal):
         )
 
 
-class VoteSelectView(discord.ui.View):
-    def __init__(self, survey_id: int, options: list, allow_short: bool, allow_multiple: bool):
-        super().__init__(timeout=None)
+class VoteOptionButton(discord.ui.Button):
+    def __init__(self, label: str, value: str, is_short: bool, survey_id: int, index: int):
+        style = discord.ButtonStyle.secondary if is_short else discord.ButtonStyle.primary
+        super().__init__(style=style, label=label[:80], custom_id=f"vote_btn_{survey_id}_{index}")
+        self.value_choice = value
+        self.is_short = is_short
         self.survey_id = survey_id
-        self.options = options
-        self.allow_short = allow_short
-        self.allow_multiple = allow_multiple
-        
-        select_options = []
-        for opt in options:
-            if isinstance(opt, dict):
-                label = opt.get('name', '옵션')[:100]
-                desc = opt.get('desc', '')[:100]
-                select_options.append(discord.SelectOption(label=label, description=desc if desc else None, value=label))
-            else:
-                label = str(opt)[:100]
-                select_options.append(discord.SelectOption(label=label, value=label))
-                
-        if self.allow_short:
-            select_options.append(discord.SelectOption(label="기타 (직접입력)", value="##SHORT_ANSWER##"))
-            
-        select = discord.ui.Select(
-            custom_id=f"vote_select_{survey_id}",
-            placeholder="투표할 옵션을 선택하세요 (다중선택 가능)" if allow_multiple else "투표할 옵션을 선택하세요",
-            min_values=1,
-            max_values=len(select_options) if allow_multiple else 1,
-            options=select_options[:25]
-        )
-        select.callback = self.select_callback
-        self.add_item(select)
 
-    async def select_callback(self, interaction: discord.Interaction):
-        selected_values = interaction.data['values']
-        
-        # Determine if SHORT_ANSWER was selected
-        has_short = "##SHORT_ANSWER##" in selected_values
-        
-        # Check if user already voted.
+    async def callback(self, interaction: discord.Interaction):
         existing_vote = await database.get_user_vote(self.survey_id, interaction.user.id)
         
-        if has_short:
-            # Drop the placeholder from the list to pass the rest of the choices to the modal
-            other_choices = [v for v in selected_values if v != "##SHORT_ANSWER##"]
-            await interaction.response.send_modal(VoteShortAnswerModal(self.survey_id, other_choices))
+        if self.is_short:
+            await interaction.response.send_modal(VoteShortAnswerModal(self.survey_id, []))
         else:
-            # Join multiple selections with a comma
-            joined_selections = ", ".join(selected_values)
-            await interaction.response.send_modal(VoteOpinionModal(self.survey_id, joined_selections))
-        
+            await interaction.response.send_modal(VoteOpinionModal(self.survey_id, self.value_choice))
+            
         if existing_vote:
-            # send_modal 이후에는 followup으로 메세지를 전송합니다 (ephemeral 속성)
             await interaction.followup.send(
                 "⚠️ **이미 현 갈드컵에 투표하셨습니다!** 방금 띄워드린 팝업창을 통해 새로운 의견을 제출하시면 기존 투표 내역이 수정 반영됩니다.",
                 ephemeral=True
             )
+
+class ViewStatsButton(discord.ui.Button):
+    def __init__(self, survey_id: int):
+        super().__init__(style=discord.ButtonStyle.success, label="👀 다른 의견 보기", custom_id=f"view_stats_{survey_id}")
+        self.survey_id = survey_id
+
+    async def callback(self, interaction: discord.Interaction):
+        survey_cog = interaction.client.get_cog("Survey")
+        if survey_cog:
+            await survey_cog.current_status.callback(survey_cog, interaction)
+        else:
+            await interaction.response.send_message("❌ 시스템 오류: 통계를 불러올 수 없습니다.", ephemeral=True)
+
+class VoteSelectView(discord.ui.View):
+    def __init__(self, survey_id: int, options: list, allow_short: bool):
+        super().__init__(timeout=None)
+        self.survey_id = survey_id
+        
+        # Add dynamic buttons for options (Limit to 24 to save 1 slot for stats button)
+        for idx, opt in enumerate(options[:24]):
+            if isinstance(opt, dict):
+                label = opt.get('name', '옵션')[:80]
+            else:
+                label = str(opt)[:80]
+                
+            self.add_item(VoteOptionButton(label, label, False, survey_id, idx))
+            
+        if allow_short:
+            self.add_item(VoteOptionButton("기타 (직접입력)", "##SHORT_ANSWER##", True, survey_id, 99))
+            
+        self.add_item(ViewStatsButton(survey_id))
 
 
 class OpinionPaginationView(discord.ui.View):
@@ -500,8 +488,7 @@ class Survey(commands.Cog):
             view = VoteSelectView(
                 survey_dict['id'], 
                 options, 
-                bool(survey_dict.get('allow_short_answer', False)), 
-                bool(survey_dict.get('allow_multiple', False))
+                bool(survey_dict.get('allow_short_answer', False))
             )
             self.bot.add_view(view)
 
@@ -516,7 +503,7 @@ class Survey(commands.Cog):
             await interaction.response.send_message("❌ 현재 진행 중인 갈드컵 주제가 없습니다.", ephemeral=True)
             return
 
-        view = VoteSelectView(survey['id'], survey['options'], survey['allow_short_answer'], survey['allow_multiple'])
+        view = VoteSelectView(survey['id'], survey['options'], survey['allow_short_answer'])
         
         embed = discord.Embed(
             title="🤔 [투표 진행 중]",
@@ -556,14 +543,13 @@ class Survey(commands.Cog):
         option_names = [opt.get('name', str(opt)) if isinstance(opt, dict) else str(opt) for opt in survey['options']]
         option_counts = {name: 0 for name in option_names}
         for v in votes:
-            chosen = [c.strip() for c in v['selected_option'].split(',')]
-            for c in chosen:
-                if c in option_counts:
-                    option_counts[c] += 1
-                else:
-                    option_counts[c] = 1 # unexpected option fallback
+            c = v['selected_option'].strip()
+            if c in option_counts:
+                option_counts[c] += 1
+            else:
+                option_counts[c] = 1 # unexpected option fallback
 
-        # 다중투표의 특성상 총 투표수(인원)보다 득표수 합계가 클 수 있음
+        # 통계 렌더링
         stat_text = "\n".join([f"**{opt}**: {cnt}표" for opt, cnt in sorted(option_counts.items(), key=lambda item: item[1], reverse=True)])
         embed.add_field(name="투표 분포", value=stat_text if stat_text else "아직 투표가 없습니다.", inline=False)
         
@@ -648,10 +634,9 @@ async def send_archived_survey_result(interaction: discord.Interaction, survey_i
         option_names = [opt.get('name', str(opt)) if isinstance(opt, dict) else str(opt) for opt in raw_options]
         counts = {name: 0 for name in option_names}
         for v in votes:
-            chosen = [c.strip() for c in v['selected_option'].split(',')]
-            for c in chosen:
-                if c in counts: counts[c] += 1
-                else: counts[c] = 1
+            c = v['selected_option'].strip()
+            if c in counts: counts[c] += 1
+            else: counts[c] = 1
                 
         stats_str = f"총 참여인원: {total_votes}명\n"
         for opt, cnt in sorted(counts.items(), key=lambda item: item[1], reverse=True):

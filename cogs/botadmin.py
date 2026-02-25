@@ -37,16 +37,8 @@ class DirectTopicModal(discord.ui.Modal, title='갈드컵 강제 새 주제 지�
         max_length=200
     )
 
-    allow_multiple = discord.ui.TextInput(
-        label='3. 중복투표 가능여부 (O/X)',
-        style=discord.TextStyle.short,
-        placeholder='O 또는 X',
-        required=True,
-        max_length=1
-    )
-
     allow_short = discord.ui.TextInput(
-        label='4. 기타 단답형 허용여부 (O/X)',
+        label='3. 기타 단답형 허용여부 (O/X)',
         style=discord.TextStyle.short,
         placeholder='O 또는 X',
         required=True,
@@ -54,7 +46,7 @@ class DirectTopicModal(discord.ui.Modal, title='갈드컵 강제 새 주제 지�
     )
     
     image_url = discord.ui.TextInput(
-        label='5. 대표 이미지 URL (선택사항)',
+        label='4. 대표 이미지 URL (선택사항)',
         style=discord.TextStyle.short,
         placeholder='http://... (비워둬도 됨)',
         required=False,
@@ -96,14 +88,12 @@ class DirectTopicModal(discord.ui.Modal, title='갈드컵 강제 새 주제 지�
             else:
                 parsed_options.append({"name": opt.strip(), "desc": ""})
 
-        is_multiple = self.allow_multiple.value.upper() == 'O'
         is_short = self.allow_short.value.upper() == 'O'
         img_val = self.image_url.value.strip() if self.image_url.value else None
 
         new_topic_data = {
             "topic": topic_text,
             "options": parsed_options,
-            "allow_multiple": is_multiple,
             "allow_short_answer": is_short,
             "image_url": img_val
         }
@@ -126,7 +116,6 @@ class AIGeneratedTopicView(discord.ui.View):
         await database.add_to_queue({
             'topic': self.generated_data['topic'],
             'options': self.generated_data['options'],
-            'allow_multiple': self.generated_data.get('allow_multiple', False),
             'allow_short_answer': self.generated_data.get('allow_short_answer', False),
             'suggested_by': interaction.user.id,
             'image_url': self.generated_data.get('image_url')
@@ -197,7 +186,6 @@ class TopicPaginationView(discord.ui.View):
                 desc += f"**{idx+1}. {opt}**\n"
                 
         embed.add_field(name="옵션", value=desc.strip(), inline=False)
-        embed.add_field(name="중복허용", value="O" if topic['allow_multiple'] else "X", inline=True)
         embed.add_field(name="단답허용", value="O" if topic['allow_short_answer'] else "X", inline=True)
         
         if topic.get('image_url'):
@@ -279,7 +267,6 @@ class TopicPaginationView(discord.ui.View):
             user_id=topic['suggested_by'],
             edit_target_id=topic['id'],
             existing_options=topic['options'],
-            allow_multiple=topic['allow_multiple'],
             allow_short=topic['allow_short_answer'],
             image_url=topic.get('image_url')
         )
@@ -316,7 +303,6 @@ class TopicPaginationView(discord.ui.View):
             await database.add_to_queue({
                 'topic': topic['topic'],
                 'options': topic['options'],
-                'allow_multiple': topic['allow_multiple'],
                 'allow_short_answer': topic['allow_short_answer'],
                 'suggested_by': topic['suggested_by'],
                 'image_url': image_url
@@ -431,7 +417,6 @@ class QueuePaginationView(discord.ui.View):
                 desc += f"**{idx+1}. {opt}**\n"
                 
         embed.add_field(name="옵션", value=desc.strip(), inline=False)
-        embed.add_field(name="중복허용", value="O" if topic['allow_multiple'] else "X", inline=True)
         embed.add_field(name="단답허용", value="O" if topic['allow_short_answer'] else "X", inline=True)
         
         if topic.get('image_url'):
@@ -657,7 +642,6 @@ class BotAdmin(commands.Cog):
                 await database.add_to_queue({
                     'topic': generated_data['topic'],
                     'options': generated_data['options'],
-                    'allow_multiple': generated_data.get('allow_multiple', False),
                     'allow_short_answer': generated_data.get('allow_short_answer', False),
                     'suggested_by': MASTER_ADMIN_ID,
                     'image_url': image_url

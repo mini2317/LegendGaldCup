@@ -148,12 +148,12 @@ async def get_all_active_announcement_channels():
         async with db.execute('SELECT guild_id, announcement_channel_id FROM servers WHERE announcement_channel_id IS NOT NULL AND announcement_enabled = 1') as cursor:
             return await cursor.fetchall()
 
-async def create_survey(topic: str, options: list, allow_multiple: bool, allow_short_answer: bool, image_url: str = None):
+async def create_survey(topic: str, options: list, allow_short_answer: bool, image_url: str = None):
     async with aiosqlite.connect(DB_FILE) as db:
         async with db.execute('''
-            INSERT INTO surveys (topic, options, allow_multiple, allow_short_answer, image_url)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (topic, json.dumps(options, ensure_ascii=False), int(allow_multiple), int(allow_short_answer), image_url)) as cursor:
+            INSERT INTO surveys (topic, options, allow_short_answer, image_url)
+            VALUES (?, ?, ?, ?)
+        ''', (topic, json.dumps(options, ensure_ascii=False), int(allow_short_answer), image_url)) as cursor:
             survey_id = cursor.lastrowid
         await db.commit()
         return survey_id
@@ -166,7 +166,6 @@ async def get_active_survey():
             if row:
                 survey = dict(row)
                 survey['options'] = json.loads(survey['options'])
-                survey['allow_multiple'] = bool(survey['allow_multiple'])
                 survey['allow_short_answer'] = bool(survey['allow_short_answer'])
                 return survey
             return None
@@ -207,12 +206,12 @@ async def has_pending_suggestion(user_id: int) -> bool:
             row = await cursor.fetchone()
             return bool(row)
 
-async def suggest_topic(topic: str, options: list, allow_multiple: bool, allow_short_answer: bool, user_id: int, image_url: str = None):
+async def suggest_topic(topic: str, options: list, allow_short_answer: bool, user_id: int, image_url: str = None):
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute('''
-            INSERT INTO suggested_topics (topic, options, allow_multiple, allow_short_answer, suggested_by, image_url)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (topic, json.dumps(options, ensure_ascii=False), int(allow_multiple), int(allow_short_answer), user_id, image_url))
+            INSERT INTO suggested_topics (topic, options, allow_short_answer, suggested_by, image_url)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (topic, json.dumps(options, ensure_ascii=False), int(allow_short_answer), user_id, image_url))
         await db.commit()
 
 async def pop_random_suggested_topic():
@@ -225,7 +224,6 @@ async def pop_random_suggested_topic():
                 await db.commit()
                 topic_data = dict(row)
                 topic_data['options'] = json.loads(topic_data['options'])
-                topic_data['allow_multiple'] = bool(topic_data['allow_multiple'])
                 topic_data['allow_short_answer'] = bool(topic_data['allow_short_answer'])
                 return topic_data
             return None
@@ -245,9 +243,9 @@ async def create_survey_snapshot(survey_id: int):
             if not row: return None
             
         async with db.execute('''
-            INSERT INTO surveys (topic, options, allow_multiple, allow_short_answer, image_url, start_time, end_time, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 0)
-        ''', (row['topic'], row['options'], row['allow_multiple'], row['allow_short_answer'], row['image_url'], row['start_time'])) as cursor:
+            INSERT INTO surveys (topic, options, allow_short_answer, image_url, start_time, end_time, is_active)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 0)
+        ''', (row['topic'], row['options'], row['allow_short_answer'], row['image_url'], row['start_time'])) as cursor:
             new_id = cursor.lastrowid
             
         async with db.execute('SELECT * FROM votes WHERE survey_id = ?', (survey_id,)) as cursor:
@@ -303,18 +301,17 @@ async def get_all_suggested_topics():
             for row in rows:
                 t = dict(row)
                 t['options'] = json.loads(t['options'])
-                t['allow_multiple'] = bool(t['allow_multiple'])
                 t['allow_short_answer'] = bool(t['allow_short_answer'])
                 topics.append(t)
             return topics
 
-async def update_suggested_topic(topic_id: int, topic: str, options: list, allow_multiple: bool, allow_short_answer: bool, image_url: str = None):
+async def update_suggested_topic(topic_id: int, topic: str, options: list, allow_short_answer: bool, image_url: str = None):
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute('''
             UPDATE suggested_topics 
-            SET topic = ?, options = ?, allow_multiple = ?, allow_short_answer = ?, image_url = ?
+            SET topic = ?, options = ?, allow_short_answer = ?, image_url = ?
             WHERE id = ?
-        ''', (topic, json.dumps(options, ensure_ascii=False), int(allow_multiple), int(allow_short_answer), image_url, topic_id))
+        ''', (topic, json.dumps(options, ensure_ascii=False), int(allow_short_answer), image_url, topic_id))
         await db.commit()
 
 async def delete_suggested_topic(topic_id: int):
@@ -327,12 +324,11 @@ async def delete_suggested_topic(topic_id: int):
 async def add_to_queue(topic: dict):
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute('''
-            INSERT INTO topic_queue (topic, options, allow_multiple, allow_short_answer, suggested_by, image_url)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO topic_queue (topic, options, allow_short_answer, suggested_by, image_url)
+            VALUES (?, ?, ?, ?, ?)
         ''', (
             topic.get('topic'), 
             json.dumps(topic.get('options', []), ensure_ascii=False) if isinstance(topic.get('options'), list) else topic.get('options', '[]'), 
-            int(topic.get('allow_multiple', 0)), 
             int(topic.get('allow_short_answer', 0)), 
             topic.get('suggested_by', 0), 
             topic.get('image_url')
@@ -347,7 +343,6 @@ async def get_next_queued_topic():
             if row:
                 topic_data = dict(row)
                 topic_data['options'] = json.loads(topic_data['options'])
-                topic_data['allow_multiple'] = bool(topic_data['allow_multiple'])
                 topic_data['allow_short_answer'] = bool(topic_data['allow_short_answer'])
                 # 가져오면 큐에서 삭제
                 await db.execute('DELETE FROM topic_queue WHERE id = ?', (row['id'],))
@@ -364,18 +359,17 @@ async def get_all_queued_topics():
             for row in rows:
                 t = dict(row)
                 t['options'] = json.loads(t['options'])
-                t['allow_multiple'] = bool(t['allow_multiple'])
                 t['allow_short_answer'] = bool(t['allow_short_answer'])
                 topics.append(t)
             return topics
 
-async def update_queued_topic(topic_id: int, topic: str, options: list, allow_multiple: bool, allow_short_answer: bool, image_url: str = None):
+async def update_queued_topic(topic_id: int, topic: str, options: list, allow_short_answer: bool, image_url: str = None):
     async with aiosqlite.connect(DB_FILE) as db:
         await db.execute('''
             UPDATE topic_queue 
-            SET topic=?, options=?, allow_multiple=?, allow_short_answer=?, image_url=?
+            SET topic=?, options=?, allow_short_answer=?, image_url=?
             WHERE id=?
-        ''', (topic, json.dumps(options, ensure_ascii=False), int(allow_multiple), int(allow_short_answer), image_url, topic_id))
+        ''', (topic, json.dumps(options, ensure_ascii=False), int(allow_short_answer), image_url, topic_id))
         await db.commit()
 
 async def delete_queued_topic(topic_id: int):
@@ -396,15 +390,15 @@ async def swap_queue_items(id1: int, id2: int):
                 
             await db.execute('''
                 UPDATE topic_queue 
-                SET topic=?, options=?, allow_multiple=?, allow_short_answer=?, suggested_by=?, image_url=?, created_at=?
+                SET topic=?, options=?, allow_short_answer=?, suggested_by=?, image_url=?, created_at=?
                 WHERE id=?
-            ''', (r2['topic'], r2['options'], r2['allow_multiple'], r2['allow_short_answer'], r2['suggested_by'], r2['image_url'], r2['created_at'], id1))
+            ''', (r2['topic'], r2['options'], r2['allow_short_answer'], r2['suggested_by'], r2['image_url'], r2['created_at'], id1))
             
             await db.execute('''
                 UPDATE topic_queue 
-                SET topic=?, options=?, allow_multiple=?, allow_short_answer=?, suggested_by=?, image_url=?, created_at=?
+                SET topic=?, options=?, allow_short_answer=?, suggested_by=?, image_url=?, created_at=?
                 WHERE id=?
-            ''', (r1['topic'], r1['options'], r1['allow_multiple'], r1['allow_short_answer'], r1['suggested_by'], r1['image_url'], r1['created_at'], id2))
+            ''', (r1['topic'], r1['options'], r1['allow_short_answer'], r1['suggested_by'], r1['image_url'], r1['created_at'], id2))
             
             await db.commit()
 
@@ -416,9 +410,9 @@ async def return_queue_to_suggested(topic_id: int):
             
         if row:
             await db.execute('''
-                INSERT INTO suggested_topics (topic, options, allow_multiple, allow_short_answer, suggested_by, image_url, created_at)
+                INSERT INTO suggested_topics (topic, options, allow_short_answer, suggested_by, image_url, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', (row['topic'], row['options'], row['allow_multiple'], row['allow_short_answer'], row['suggested_by'], row['image_url'], row['created_at']))
+            ''', (row['topic'], row['options'], row['allow_short_answer'], row['suggested_by'], row['image_url'], row['created_at']))
             
             await db.execute('DELETE FROM topic_queue WHERE id = ?', (topic_id,))
             await db.commit()
