@@ -12,7 +12,9 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS servers (
                 guild_id INTEGER PRIMARY KEY,
                 announcement_channel_id INTEGER,
-                announcement_enabled INTEGER DEFAULT 1
+                announcement_enabled INTEGER DEFAULT 1,
+                welcome_shown INTEGER DEFAULT 0,
+                current_survey_msg_id INTEGER
             )
         ''')
         
@@ -26,6 +28,11 @@ async def init_db():
         except Exception:
             pass
         
+        try:
+            await db.execute('ALTER TABLE servers ADD COLUMN current_survey_msg_id INTEGER')
+        except Exception:
+            pass
+            
         # 설문조사 메인 테이블
         await db.execute('''
             CREATE TABLE IF NOT EXISTS surveys (
@@ -102,7 +109,7 @@ async def init_db():
             )
         ''')
         
-        # 일일 명언(박제) 투표 테이블
+        # 일일 의견(박제) 투표 테이블
         await db.execute('''
             CREATE TABLE IF NOT EXISTS daily_opinion_votes (
                 opinion_id TEXT NOT NULL,
@@ -151,6 +158,22 @@ async def set_announcement_enabled(guild_id: int, enabled: int):
             UPDATE servers SET announcement_enabled = ? WHERE guild_id = ?
         ''', (enabled, guild_id))
         await db.commit()
+
+async def set_current_survey_msg_id(guild_id: int, message_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        # Assuming the row exists since this is called right after sending a message to a known channel.
+        # But if it doesn't, this update will just do nothing without ON CONFLICT logic.
+        # However, the channel exists because it was set. So we can update.
+        await db.execute('''
+            UPDATE servers SET current_survey_msg_id = ? WHERE guild_id = ?
+        ''', (message_id, guild_id))
+        await db.commit()
+
+async def get_current_survey_msg_id(guild_id: int):
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute('SELECT current_survey_msg_id FROM servers WHERE guild_id = ?', (guild_id,)) as cursor:
+            row = await cursor.fetchone()
+            return row[0] if row else None
 
 async def get_global_setting(key: str, default: str = None) -> str:
     async with aiosqlite.connect(DB_FILE) as db:
@@ -240,6 +263,12 @@ async def get_user_vote(survey_id: int, user_id: int):
         db.row_factory = aiosqlite.Row
         async with db.execute('SELECT * FROM votes WHERE survey_id = ? AND user_id = ?', (survey_id, user_id)) as cursor:
             return await cursor.fetchone()
+
+async def has_user_voted(survey_id: int, user_id: int) -> bool:
+    async with aiosqlite.connect(DB_FILE) as db:
+        async with db.execute('SELECT 1 FROM votes WHERE survey_id = ? AND user_id = ?', (survey_id, user_id)) as cursor:
+            row = await cursor.fetchone()
+            return row is not None
 
 async def get_votes_for_survey(survey_id: int):
     async with aiosqlite.connect(DB_FILE) as db:

@@ -764,10 +764,18 @@ class DailyOpinionView(discord.ui.View):
         try:
             opinion_id = interaction.message.embeds[0].footer.text.replace("ID: ", "")
         except Exception:
-            await interaction.response.send_message("❌ 일일 명언 정보를 찾을 수 없습니다.", ephemeral=True)
+            await interaction.response.send_message("❌ 일일 의견 정보를 찾을 수 없습니다.", ephemeral=True)
             return
             
-        from database import vote_daily_opinion, get_daily_opinion_votes
+        from database import vote_daily_opinion, get_daily_opinion_votes, get_active_survey, has_user_voted
+        
+        # 선행 조건: 현재 진행 중인 주제에 투표했는지 확인
+        active_survey = await get_active_survey()
+        if active_survey:
+            voted = await has_user_voted(active_survey['id'], interaction.user.id)
+            if not voted:
+                await interaction.response.send_message("🤔 **일일 의견을 평가하시려면, 먼저 현재 진행 중인 갈드컵에 투표(의견 작성)하셔야 합니다!**\n채널에 고정된 원본 주제 메시지로 이동해 투표해주세요.", ephemeral=True)
+                return
         
         changed = await vote_daily_opinion(opinion_id, interaction.user.id, is_like)
         

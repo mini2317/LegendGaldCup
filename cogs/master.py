@@ -287,12 +287,6 @@ class Master(commands.Cog):
                 reason = result.get('reason')
                 
                 if selected_opinion:
-                    embed = discord.Embed(
-                        title="🌟 오늘의 레전드 갈드컵 의견",
-                        description=f"지난 24시간 동안 가장 뜨거웠던 의견을 AI가 직접 선정했습니다!\n\n**[{selected_option}]**\n> \"{selected_opinion}\"\n\n💡 **AI 선정 이유:**\n{reason}",
-                        color=discord.Color.gold()
-                    )
-                    embed.set_footer(text=f"ID: {current_date_str}")
                     from cogs.survey import DailyOpinionView
                     view = DailyOpinionView()
                     
@@ -300,6 +294,21 @@ class Master(commands.Cog):
                     for guild_id, channel_id in channels:
                         channel = self.bot.get_channel(channel_id)
                         if channel:
+                            embed = discord.Embed(
+                                title="🌟 레전드 갈드컵 오늘의 의견",
+                                description="지난 24시간 동안 가장 뜨거웠던 의견을 AI가 직접 선정했습니다!",
+                                color=discord.Color.gold()
+                            )
+                            embed.add_field(name=f"🗣️ [{selected_option}]", value=f"> \"{selected_opinion}\"", inline=False)
+                            embed.add_field(name="💡 AI 선정 이유", value=reason, inline=False)
+                            
+                            survey_msg_id = await database.get_current_survey_msg_id(guild_id)
+                            if survey_msg_id:
+                                jump_url = f"https://discord.com/channels/{guild_id}/{channel_id}/{survey_msg_id}"
+                                embed.add_field(name="🔗 설문 확인하기", value=f"[📝 본 투표소로 이동하기]({jump_url})", inline=False)
+                                
+                            embed.set_footer(text=f"ID: {current_date_str}")
+                            
                             try:
                                 await channel.send(embed=embed, view=view)
                             except discord.Forbidden:
@@ -568,6 +577,10 @@ class Master(commands.Cog):
             
         try:
             msg = await channel.send(embed=embed, view=view)
+            
+            # 새 주제의 메시지 ID를 데이터베이스에 저장
+            await database.set_current_survey_msg_id(guild_id, msg.id)
+            
             try:
                 await msg.pin(reason="최신 갈드컵 주제 메시지 지정을 위해 고정")
             except discord.Forbidden:
